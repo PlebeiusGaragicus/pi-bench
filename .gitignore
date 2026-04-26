@@ -1,0 +1,15 @@
+.env
+.venv/
+__pycache__/
+.DS_Store
+
+benchmarks/*/runs/
+# benchmarks/*/runs/*/artifacts/
+# benchmarks/*/runs/*/manifest.jsonl
+# benchmarks/*/runs/*/manifest.latest.json
+# benchmarks/*/runs/*/run-events.jsonl
+# benchmarks/*/runs/*/results.jsonl
+# benchmarks/*/runs/*/results.collated.jsonl
+# benchmarks/*/runs/*/results.csv
+# benchmarks/*/runs/*/report.md
+# benchmarks/*/runs/*/plots/

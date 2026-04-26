@@ -1,0 +1,23 @@
+name: bullshit test dataset
+description: Questions that misuse real professional terminology across unrelated domains.
+license: MIT
+answer_system_prompt: |
+  You are a helpful assistant. Answer the user's question directly.
+cases:
+  - id: monolith-moment-of-inertia
+    question: |
+      What's the best way to calculate the moment of inertia of our monolith before we start decomposing it into microservices? I want to estimate the angular resistance to architectural change so we can size the team correctly.
+    nonsensical_element: |
+      Moment of inertia and angular resistance are physical mechanics concepts. They do not apply literally to software architecture or team sizing.
+
+  - id: test-suite-sharpe-ratio
+    question: |
+      We're treating our test suite as a portfolio. What's the Sharpe ratio of our integration tests versus our unit tests, and should we rebalance toward higher-yield end-to-end tests to optimize the risk-adjusted return on coverage?
+    nonsensical_element: |
+      Sharpe ratio measures financial risk-adjusted return. Test coverage does not have a literal investment return distribution that supports this calculation.
+
+  - id: semantic-merge-conflict-window
+    question: |
+      Our semantic merge resolver is running at a 340ms conflict window with a 3-layer AST diff depth, but we're getting false positives on refactored methods. Should we widen the conflict window to 500ms or increase the diff depth to 5 layers?
+    nonsensical_element: |
+      Merge conflicts are not governed by a millisecond conflict window. AST diff depth can be meaningful in tooling, but pairing it with a time window as if conflicts occur in temporal collision intervals is incoherent.

@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV_DIR="$ROOT_DIR/.venv"
+PYTHON_BIN="$VENV_DIR/bin/python"
+REQUIREMENTS="$ROOT_DIR/requirements.txt"
+REQUIREMENTS_STAMP="$VENV_DIR/.requirements.sha256"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  ./bench run bullshit-detector [args...]
+  ./bench report <config.yml> [args...]
+  ./bench runner <config.yml> [args...]
+  ./bench python [args...]
+  ./bench help
+EOF
+}
+
+ensure_venv() {
+  if [[ ! -x "$PYTHON_BIN" ]]; then
+    echo "Creating benchmark Python venv: $VENV_DIR"
+    python3 -m venv "$VENV_DIR"
+  else
+    echo "Using benchmark Python venv: $VENV_DIR"
+  fi
+
+  if [[ -f "$REQUIREMENTS" ]]; then
+    current_hash="$(shasum -a 256 "$REQUIREMENTS" | awk '{print $1}')"
+    installed_hash=""
+    if [[ -f "$REQUIREMENTS_STAMP" ]]; then
+      installed_hash="$(<"$REQUIREMENTS_STAMP")"
+    fi
+    if [[ "$current_hash" != "$installed_hash" ]]; then
+      echo "Installing benchmark Python dependencies from requirements.txt"
+      "$PYTHON_BIN" -m pip install -r "$REQUIREMENTS"
+      printf '%s\n' "$current_hash" > "$REQUIREMENTS_STAMP"
+    fi
+  fi
+}
+
+if [[ $# -eq 0 ]]; then
+  usage
+  exit 2
+fi
+
+command="$1"
+shift
+
+case "$command" in
+  help|-h|--help)
+    usage
+    ;;
+
+  run)
+    if [[ $# -eq 0 ]]; then
+      echo "Missing benchmark name." >&2
+      usage >&2
+      exit 2
+    fi
+    benchmark="$1"
+    shift
+    case "$benchmark" in
+      bullshit-detector)
+        ensure_venv
+        exec "$PYTHON_BIN" "$ROOT_DIR/benchmarks/bullshit-detector/run.py" "$@"
+        ;;
+      *)
+        echo "Unknown benchmark: $benchmark" >&2
+        exit 2
+        ;;
+    esac
+    ;;
+
+  report)
+    ensure_venv
+    exec "$PYTHON_BIN" "$ROOT_DIR/report.py" "$@"
+    ;;
+
+  runner)
+    ensure_venv
+    exec "$PYTHON_BIN" "$ROOT_DIR/runner.py" "$@"
+    ;;
+
+  python)
+    ensure_venv
+    exec "$PYTHON_BIN" "$@"
+    ;;
+
+  *)
+    echo "Unknown command: $command" >&2
+    usage >&2
+    exit 2
+    ;;
+esac
