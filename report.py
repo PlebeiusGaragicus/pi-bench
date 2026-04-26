@@ -230,6 +230,35 @@ def model_label(record: dict[str, Any]) -> str:
     return f"{record.get('model')} / thinking={record.get('reasoning')} / prompt={prompt_label(record)}"
 
 
+def short_model_name(model: Any) -> str:
+    return str(model or "").rstrip("/").split("/")[-1]
+
+
+def plot_matrix_label(record: dict[str, Any]) -> str:
+    model = short_model_name(record.get("model"))
+    reasoning = str(record.get("reasoning") or "off")
+    prompt = prompt_label(record)
+    return f"{model} | {reasoning} | {prompt}"
+
+
+def plot_labels_for_records(records: list[dict[str, Any]], labels: list[str]) -> list[str]:
+    records_by_label: dict[str, dict[str, Any]] = {}
+    for record in records:
+        label = model_label(record)
+        if label not in records_by_label:
+            records_by_label[label] = record
+
+    display_labels = [plot_matrix_label(records_by_label[label]) for label in labels]
+    counts: dict[str, int] = defaultdict(int)
+    for display_label in display_labels:
+        counts[display_label] += 1
+
+    return [
+        display_label if counts[display_label] == 1 else full_label
+        for display_label, full_label in zip(display_labels, labels, strict=True)
+    ]
+
+
 def prompt_label(record: dict[str, Any]) -> str:
     return str(record.get("answer_prompt_id") or "")
 
@@ -464,6 +493,12 @@ def average_seconds(values: list[float]) -> str:
         return ""
     return f"{mean(values):.2f}"
 
+# poorly formatted
+# def left_align_y_tick_labels(ax: Any) -> None:
+#     for label in ax.get_yticklabels():
+#         label.set_horizontalalignment("left")
+#         label.set_x(-0.02)
+
 
 def maybe_write_plots(records: list[dict[str, Any]], plots_dir: Path) -> list[str]:
     try:
@@ -476,15 +511,17 @@ def maybe_write_plots(records: list[dict[str, Any]], plots_dir: Path) -> list[st
     if groups:
         plots_dir.mkdir(parents=True, exist_ok=True)
         labels = list(groups)
+        display_labels = plot_labels_for_records(records, labels)
         averages = [mean(groups[label]) for label in labels]
 
-        width = max(8, len(labels) * 1.2)
-        fig, ax = plt.subplots(figsize=(width, 4.5))
-        ax.bar(labels, averages)
-        ax.set_ylim(0, 2)
-        ax.set_ylabel("Average Score")
+        height = max(4.5, len(labels) * 0.6)
+        fig, ax = plt.subplots(figsize=(10, height))
+        ax.barh(display_labels, averages)
+        ax.set_xlim(0, 2)
+        ax.set_xlabel("Average Score")
         ax.set_title("Average BullshitBench Score By Matrix Item")
-        ax.tick_params(axis="x", labelrotation=30)
+        ax.invert_yaxis()
+        # left_align_y_tick_labels(ax)
         fig.tight_layout()
 
         output = plots_dir / "average-score-by-matrix-item.png"
@@ -513,13 +550,15 @@ def maybe_write_plots(records: list[dict[str, Any]], plots_dir: Path) -> list[st
     if item_groups:
         plots_dir.mkdir(parents=True, exist_ok=True)
         labels = list(item_groups)
+        display_labels = plot_labels_for_records(records, labels)
         averages = [mean(item_groups[label]) for label in labels]
-        width = max(8, len(labels) * 1.2)
-        fig, ax = plt.subplots(figsize=(width, 4.5))
-        ax.bar(labels, averages)
-        ax.set_ylabel("Average Seconds")
+        height = max(4.5, len(labels) * 0.6)
+        fig, ax = plt.subplots(figsize=(10, height))
+        ax.barh(display_labels, averages)
+        ax.set_xlabel("Average Seconds")
         ax.set_title("Average Item Runtime By Matrix Item")
-        ax.tick_params(axis="x", labelrotation=30)
+        ax.invert_yaxis()
+        # left_align_y_tick_labels(ax)
         fig.tight_layout()
 
         output = plots_dir / "average-runtime-by-matrix-item.png"
