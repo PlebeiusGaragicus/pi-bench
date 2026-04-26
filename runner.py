@@ -92,7 +92,7 @@ def text_from_message(message: dict[str, Any]) -> str:
 
 
 def compact_message_metadata(message: dict[str, Any]) -> dict[str, Any]:
-    fields = ["api", "provider", "model", "usage", "stopReason", "timestamp", "responseId"]
+    fields = ["api", "provider", "model", "usage", "stopReason", "timestamp", "responseId", "errorMessage"]
     return {field: message[field] for field in fields if field in message}
 
 
@@ -122,6 +122,36 @@ def parse_final_output(event_stream: str) -> dict[str, Any]:
         "metadata": compact_message_metadata(final_message),
         "event_count": event_count,
     }
+
+
+def output_error_message(output: dict[str, Any]) -> str:
+    metadata = output.get("metadata")
+    if not isinstance(metadata, dict) or metadata.get("stopReason") != "error":
+        return ""
+    message = metadata.get("errorMessage")
+    return str(message or "model stopped with an error")
+
+
+def artifact_output_has_error(path: Path) -> bool:
+    if not path.exists():
+        return False
+    try:
+        output = json.loads(read_text(path))
+    except (OSError, json.JSONDecodeError):
+        return True
+    if not isinstance(output, dict):
+        return True
+    return bool(output_error_message(output))
+
+
+def usable_text_artifact(text_path: Path, output_path: Path) -> bool:
+    if not text_path.exists() or not output_path.exists():
+        return False
+    try:
+        text = read_text(text_path)
+    except OSError:
+        return False
+    return bool(text.strip()) and not artifact_output_has_error(output_path)
 
 
 def load_case_data(case_file: Path) -> dict[str, Any]:
@@ -251,6 +281,10 @@ def append_manifest(manifest_path: Path, item_id: str, state: str, **extra: Any)
     append_jsonl(manifest_path, {"ts": utc_now(), "item_id": item_id, "state": state, **extra})
 
 
+def is_successfully_complete(state: dict[str, Any] | None) -> bool:
+    return bool(state and state.get("state") == "complete" and state.get("status") != "error")
+
+
 def should_skip(
     item_id: str,
     states: dict[str, dict[str, Any]],
@@ -258,8 +292,10 @@ def should_skip(
 ) -> bool:
     if not resume:
         return False
+    if is_successfully_complete(states.get(item_id)):
+        return True
     state = (states.get(item_id) or {}).get("state")
-    if state in {"complete", "failed"}:
+    if state == "failed":
         return True
     return False
 
@@ -377,8 +413,13 @@ def run_pi(
     output["elapsed_seconds"] = elapsed
     write_json(output_path, output)
     write_text(stderr_path, stderr)
+    model_error = output_error_message(output)
+    exit_code = proc.returncode or 0
+    if model_error and exit_code == 0:
+        exit_code = 1
+        stderr = (stderr.rstrip() + "\n" if stderr else "") + model_error
     return {
-        "exit_code": proc.returncode or 0,
+        "exit_code": exit_code,
         "text": output["text"],
         "output": output,
         "stderr": stderr,
@@ -899,10 +940,6 @@ def run_parse_phase_item(
     return True
 
 
-def current_state(item: dict[str, Any], states: dict[str, dict[str, Any]]) -> str:
-    return str((states.get(item["item_id"]) or {}).get("state") or "")
-
-
 def write_latest_manifest(manifest_path: Path, latest_path: Path) -> None:
     states = replay_manifest(manifest_path)
     write_json(latest_path, states)
@@ -985,7 +1022,7 @@ def main() -> int:
         logger.log(f"answer phase start: items={len(runnable)}")
         for index, item in enumerate(runnable, start=1):
             paths = item_paths(run_dir, item["item_id"])
-            if args.resume and paths["answer_output_path"].exists() and paths["answer_text_path"].exists():
+            if args.resume and usable_text_artifact(paths["answer_text_path"], paths["answer_output_path"]):
                 logger.log(f"[{index}/{len(runnable)}] answer skip: existing artifact item={item['item_id']}")
                 continue
             ok = run_answer_phase_item(
@@ -1007,12 +1044,13 @@ def main() -> int:
         judge_items = [
             item
             for item in runnable
-            if current_state(item, states) != "complete" and item_paths(run_dir, item["item_id"])["answer_text_path"].exists()
+            if not is_successfully_complete(states.get(item["item_id"]))
+            and item_paths(run_dir, item["item_id"])["answer_text_path"].exists()
         ]
         logger.log(f"judge phase start: items={len(judge_items)}")
         for index, item in enumerate(judge_items, start=1):
             paths = item_paths(run_dir, item["item_id"])
-            if args.resume and paths["judge_output_path"].exists() and paths["judge_text_path"].exists():
+            if args.resume and usable_text_artifact(paths["judge_text_path"], paths["judge_output_path"]):
                 logger.log(f"[{index}/{len(judge_items)}] judge skip: existing artifact item={item['item_id']}")
                 continue
             ok = run_judge_phase_item(
@@ -1035,7 +1073,8 @@ def main() -> int:
         parse_items = [
             item
             for item in runnable
-            if current_state(item, states) != "complete" and item_paths(run_dir, item["item_id"])["judge_text_path"].exists()
+            if not is_successfully_complete(states.get(item["item_id"]))
+            and item_paths(run_dir, item["item_id"])["judge_text_path"].exists()
         ]
         logger.log(f"parse phase start: items={len(parse_items)}")
         for index, item in enumerate(parse_items, start=1):

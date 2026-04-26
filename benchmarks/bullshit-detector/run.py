@@ -360,7 +360,11 @@ def count_complete_items(latest_path: Path) -> int:
         return 0
     if not isinstance(states, dict):
         return 0
-    return sum(1 for state in states.values() if isinstance(state, dict) and state.get("state") == "complete")
+    return sum(
+        1
+        for state in states.values()
+        if isinstance(state, dict) and state.get("state") == "complete" and state.get("status") != "error"
+    )
 
 
 def completed_initial_limited_run(run_dir: Path, complete_items: int, total_items: int) -> bool:
