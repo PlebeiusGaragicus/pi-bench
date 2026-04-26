@@ -5,6 +5,11 @@ prompts:
       You are a helpful assistant.
 
   - id: baseline-helpful-guided
-    description: Explicitly challenge incoherent or category-error premises.
+    description: Add guidance to the user's understanding and/or solution.
     text: |
-      You are a helpful assistant.  Help guide the user towards an understanding of or a solution to their problem.
+      You are a helpful assistant. Help guide the user towards an understanding of or a solution to their problem.
+
+  - id: baseline-helpful-grounded-understanding
+    description: Explicitly ground the user's understanding in reality.
+    text: |
+      You are a helpful assistant. Help guide the user towards towards a solution to their problem by explicitly grounding the user's understanding in reality.
