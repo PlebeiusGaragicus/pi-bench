@@ -197,6 +197,49 @@ def model_label(record: dict[str, Any]) -> str:
     return f"{record.get('model')} / thinking={record.get('reasoning')}"
 
 
+def reasoning_sort_key(value: str) -> tuple[int, str]:
+    v = str(value)
+    order = {"off": 0, "low": 1, "medium": 2, "high": 3}
+    return (order.get(v.lower(), 99), v)
+
+
+def case_results_markdown(records: list[dict[str, Any]]) -> list[str]:
+    lines = [
+        "Collated evaluation records: [results.collated.jsonl](results.collated.jsonl).",
+        "",
+    ]
+    models = sorted({str(record.get("model", "")) for record in records})
+    for model in models:
+        model_records = [record for record in records if str(record.get("model", "")) == model]
+        reasonings = sorted(
+            {str(record.get("reasoning", "off")) for record in model_records},
+            key=reasoning_sort_key,
+        )
+        lines.append(f"### `{model}`")
+        lines.append("")
+        for reasoning in reasonings:
+            slice_records = [
+                record for record in model_records if str(record.get("reasoning", "off")) == reasoning
+            ]
+            lines.append(f"#### `thinking={reasoning}`")
+            lines.append("")
+            lines.extend(
+                [
+                    "| Case | Status | Score | Item Seconds | Description |",
+                    "|---|---|---:|---:|---|",
+                ]
+            )
+            for record in sorted(slice_records, key=lambda item: str(item.get("case_id", ""))):
+                desc = str(record.get("description", "")).replace("|", "\\|")
+                status = str(record.get("status") or "ok")
+                item_seconds = format_seconds(timing_value(record, "item_seconds"))
+                lines.append(
+                    f"| `{record.get('case_id')}` | {status} | {record.get('score')} | {item_seconds} | {desc} |"
+                )
+            lines.append("")
+    return lines
+
+
 def timing_value(record: dict[str, Any], field: str) -> float | str:
     timing = record.get("timing")
     if not isinstance(timing, dict):
@@ -376,19 +419,7 @@ def markdown_report(config: dict[str, Any], records: list[dict[str, Any]], plot_
 
     if records:
         lines.extend(["", "## Case Results", ""])
-        lines.extend(
-            [
-                "| Case | Model | Status | Score | Item Seconds | Description |",
-                "|---|---|---|---:|---:|---|",
-            ]
-        )
-        for record in sorted(records, key=lambda item: (item.get("case_id", ""), item.get("model", ""))):
-            desc = str(record.get("description", "")).replace("|", "\\|")
-            status = str(record.get("status") or "ok")
-            item_seconds = format_seconds(timing_value(record, "item_seconds"))
-            lines.append(
-                f"| `{record.get('case_id')}` | `{record.get('model')}` | {status} | {record.get('score')} | {item_seconds} | {desc} |"
-            )
+        lines.extend(case_results_markdown(records))
 
     lines.append("")
     return "\n".join(lines)

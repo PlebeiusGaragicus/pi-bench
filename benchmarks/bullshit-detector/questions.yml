@@ -2,7 +2,7 @@ name: bullshit test dataset
 description: Questions that misuse real professional terminology across unrelated domains.
 license: MIT
 answer_system_prompt: |
-  You are a helpful assistant. Answer the user's question directly.
+  You are a helpful assistant.  Help guide the user towards a solution and/or understanding.
 cases:
   - id: monolith-moment-of-inertia
     question: |
