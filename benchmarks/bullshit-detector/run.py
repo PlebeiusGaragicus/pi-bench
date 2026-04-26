@@ -270,6 +270,28 @@ def count_complete_items(latest_path: Path) -> int:
     return sum(1 for state in states.values() if isinstance(state, dict) and state.get("state") == "complete")
 
 
+def completed_initial_limited_run(run_dir: Path, complete_items: int, total_items: int) -> bool:
+    events_path = run_dir / "run-events.jsonl"
+    if not events_path.exists():
+        return False
+    latest_start: dict[str, Any] | None = None
+    with events_path.open("r", encoding="utf-8") as fh:
+        for line in fh:
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if event.get("event") != "runner_start":
+                continue
+            latest_start = event
+    if not latest_start or latest_start.get("resume"):
+        return False
+    items_runnable = latest_start.get("items_runnable")
+    if not isinstance(items_runnable, int) or items_runnable >= total_items:
+        return False
+    return complete_items >= items_runnable
+
+
 def find_interrupted_runs() -> list[InterruptedRun]:
     runs_dir = BENCHMARK_DIR / "runs"
     interrupted: list[InterruptedRun] = []
@@ -281,7 +303,7 @@ def find_interrupted_runs() -> list[InterruptedRun]:
         if total_items <= 0:
             continue
         complete_items = count_complete_items(run_dir / "manifest.latest.json")
-        if complete_items < total_items:
+        if complete_items < total_items and not completed_initial_limited_run(run_dir, complete_items, total_items):
             interrupted.append(
                 InterruptedRun(
                     config_path=config_path,
@@ -297,21 +319,21 @@ def maybe_resume_interrupted_run(args: argparse.Namespace) -> int | None:
     if not sys.stdin.isatty() or args.run_id or args.no_launch:
         return None
 
-    print("Checking for interrupted benchmark runs...", end=" ")
+    print("Checking for incomplete benchmark runs...", end=" ")
     interrupted = find_interrupted_runs()
     if not interrupted:
         print("none found")
         return None
 
     print(f"found {len(interrupted)}")
-    print("Interrupted benchmark runs:")
+    print("Incomplete benchmark runs:")
     labels = [
         f"{run.run_id} ({run.complete_items}/{run.total_items} items complete)"
         for run in interrupted
     ]
     for index, label in enumerate(labels, start=1):
         print(f"  {index}. {label}")
-    if not prompt_bool("Continue an interrupted run", True):
+    if not prompt_bool("Continue an incomplete run", True):
         return None
 
     selected_label = select_one("Which run should continue?", labels, None)

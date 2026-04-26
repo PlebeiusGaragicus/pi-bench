@@ -16,11 +16,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from report import generate_report
 from yaml_loader import load_yaml
 
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def elapsed_since(started: float) -> float:
+    return time.monotonic() - started
 
 
 def read_text(path: Path) -> str:
@@ -248,14 +253,24 @@ def run_pi(
     write_json(args_path, args)
 
     if dry_run_text is not None:
+        started = time.monotonic()
+        elapsed = elapsed_since(started)
         output = {
             "text": dry_run_text,
             "metadata": {"dry_run": True},
             "event_count": 1,
+            "elapsed_seconds": elapsed,
         }
         write_json(output_path, output)
         write_text(stderr_path, "[dry-run]\n")
-        return {"exit_code": 0, "text": dry_run_text, "output": output, "stderr": "[dry-run]\n", "timed_out": False}
+        return {
+            "exit_code": 0,
+            "text": dry_run_text,
+            "output": output,
+            "stderr": "[dry-run]\n",
+            "timed_out": False,
+            "elapsed_seconds": elapsed,
+        }
 
     env = os.environ.copy()
     env.pop("PI_CODING_AGENT_DIR", None)
@@ -281,7 +296,7 @@ def run_pi(
         except subprocess.TimeoutExpired:
             proc.kill()
             stdout, stderr = proc.communicate()
-        elapsed = time.monotonic() - started
+        elapsed = elapsed_since(started)
         output = parse_final_output(stdout or "")
         output["elapsed_seconds"] = elapsed
         output["aborted"] = True
@@ -296,7 +311,7 @@ def run_pi(
             "timed_out": False,
             "elapsed_seconds": elapsed,
         }
-    elapsed = time.monotonic() - started
+    elapsed = elapsed_since(started)
     output = parse_final_output(stdout)
     output["elapsed_seconds"] = elapsed
     write_json(output_path, output)
@@ -393,6 +408,8 @@ def run_item(
         "judge_reasoning": judge_config.get("reasoning", "off"),
     }
     write_json(metadata_path, metadata)
+    item_started = time.monotonic()
+    timing: dict[str, float] = {}
 
     logger.log(
         f"[{index}/{total}] case={case['id']} model={model['id']} reasoning={reasoning} item={item_id}"
@@ -407,23 +424,35 @@ def run_item(
         artifact_dir=answer_dir,
         dry_run_text=f"Dry-run answer for {case['id']} from {model['id']}." if dry_run else None,
     )
+    timing["answer_seconds"] = float(answer_result.get("elapsed_seconds") or 0.0)
     answer_text = str(answer_result.get("text") or "")
     write_text(answer_dir / "answer.txt", answer_text)
     if answer_result.get("aborted"):
         logger.log(f"[{index}/{total}] answer aborted: case={case['id']}")
-        append_manifest(manifest_path, item_id, "interrupted", phase="answer", exit_code=130)
+        timing["item_seconds"] = elapsed_since(item_started)
+        append_manifest(manifest_path, item_id, "interrupted", phase="answer", exit_code=130, timing=timing)
         raise KeyboardInterrupt
     if answer_result["exit_code"] != 0:
         logger.log(f"[{index}/{total}] answer error: exit_code={answer_result['exit_code']} case={case['id']}")
+        timing["item_seconds"] = elapsed_since(item_started)
         record = error_record(
             metadata,
             "answer",
             answer_result["stderr"].strip() or "answer model exited with an error",
             exit_code=answer_result["exit_code"],
+            timing=timing,
         )
         write_json(parsed_path, record)
         append_jsonl(run_dir / "results.jsonl", record)
-        append_manifest(manifest_path, item_id, "complete", status="error", phase="answer", exit_code=answer_result["exit_code"])
+        append_manifest(
+            manifest_path,
+            item_id,
+            "complete",
+            status="error",
+            phase="answer",
+            exit_code=answer_result["exit_code"],
+            timing=timing,
+        )
         return False
     append_manifest(manifest_path, item_id, "answer_complete")
     logger.log(f"[{index}/{total}] answer complete: model={model['id']} case={case['id']}")
@@ -451,23 +480,35 @@ def run_item(
         artifact_dir=judge_dir,
         dry_run_text="Score: 2\nDescription: Dry-run judge output confirms parser and manifest flow." if dry_run else None,
     )
+    timing["judge_seconds"] = float(judge_result.get("elapsed_seconds") or 0.0)
     judge_text = str(judge_result.get("text") or "")
     write_text(judge_dir / "judge.txt", judge_text)
     if judge_result.get("aborted"):
         logger.log(f"[{index}/{total}] judge aborted: case={case['id']}")
-        append_manifest(manifest_path, item_id, "interrupted", phase="judge", exit_code=130)
+        timing["item_seconds"] = elapsed_since(item_started)
+        append_manifest(manifest_path, item_id, "interrupted", phase="judge", exit_code=130, timing=timing)
         raise KeyboardInterrupt
     if judge_result["exit_code"] != 0:
         logger.log(f"[{index}/{total}] judge error: exit_code={judge_result['exit_code']} case={case['id']}")
+        timing["item_seconds"] = elapsed_since(item_started)
         record = error_record(
             metadata,
             "judge",
             judge_result["stderr"].strip() or "judge model exited with an error",
             exit_code=judge_result["exit_code"],
+            timing=timing,
         )
         write_json(parsed_path, record)
         append_jsonl(run_dir / "results.jsonl", record)
-        append_manifest(manifest_path, item_id, "complete", status="error", phase="judge", exit_code=judge_result["exit_code"])
+        append_manifest(
+            manifest_path,
+            item_id,
+            "complete",
+            status="error",
+            phase="judge",
+            exit_code=judge_result["exit_code"],
+            timing=timing,
+        )
         return False
     append_manifest(manifest_path, item_id, "judge_complete")
     logger.log(f"[{index}/{total}] judge complete: model={judge_config['model']} case={case['id']}")
@@ -475,19 +516,27 @@ def run_item(
     try:
         parser_script = resolve_path(config_dir, str(runner_config["parser_script"]))
         logger.log(f"[{index}/{total}] parse start: parser={parser_script} case={case['id']}")
+        parse_started = time.monotonic()
         parsed = run_parser(parser_script, metadata_path, judge_dir / "judge.txt", parsed_path)
+        timing["parse_seconds"] = elapsed_since(parse_started)
     except Exception as exc:  # noqa: BLE001 - preserve parser failure in manifest
+        if "parse_started" in locals():
+            timing["parse_seconds"] = elapsed_since(parse_started)
+        timing["item_seconds"] = elapsed_since(item_started)
         logger.log(f"[{index}/{total}] parse error: case={case['id']} error={exc}")
-        record = error_record(metadata, "parse", str(exc))
+        record = error_record(metadata, "parse", str(exc), timing=timing)
         write_json(parsed_path, record)
         append_jsonl(run_dir / "results.jsonl", record)
-        append_manifest(manifest_path, item_id, "complete", status="error", phase="parse", error=str(exc))
+        append_manifest(manifest_path, item_id, "complete", status="error", phase="parse", error=str(exc), timing=timing)
         return False
 
+    timing["item_seconds"] = elapsed_since(item_started)
+    parsed["timing"] = timing
     parsed.setdefault("status", "ok")
+    write_json(parsed_path, parsed)
     append_jsonl(run_dir / "results.jsonl", parsed)
     append_manifest(manifest_path, item_id, "parsed", score=parsed.get("score"))
-    append_manifest(manifest_path, item_id, "complete", score=parsed.get("score"))
+    append_manifest(manifest_path, item_id, "complete", score=parsed.get("score"), timing=timing)
     logger.log(f"[{index}/{total}] complete: case={case['id']} score={parsed.get('score')}")
     return True
 
@@ -495,6 +544,16 @@ def run_item(
 def write_latest_manifest(manifest_path: Path, latest_path: Path) -> None:
     states = replay_manifest(manifest_path)
     write_json(latest_path, states)
+
+
+def write_auto_report(config_path: Path, logger: RunLogger) -> bool:
+    try:
+        summary = generate_report(config_path)
+    except Exception as exc:  # noqa: BLE001 - keep benchmark results even if report rendering fails
+        logger.log(f"report error: {exc}")
+        return False
+    logger.log(f"report complete: path={summary['report_path']} records={summary['records']}")
+    return True
 
 
 def main() -> int:
@@ -525,6 +584,7 @@ def main() -> int:
     latest_path = run_dir / "manifest.latest.json"
     logger = RunLogger(run_dir / "run.log")
     states = replay_manifest(manifest_path)
+    run_started = time.monotonic()
 
     runnable = [
         item
@@ -544,6 +604,7 @@ def main() -> int:
             "dry_run": args.dry_run,
             "items_total": len(items),
             "items_runnable": len(runnable),
+            "limit": args.limit,
         },
     )
     logger.log(f"run start: config={config_path} run_dir={run_dir}")
@@ -578,16 +639,43 @@ def main() -> int:
             write_latest_manifest(manifest_path, latest_path)
     except KeyboardInterrupt:
         write_latest_manifest(manifest_path, latest_path)
+        append_jsonl(
+            run_dir / "run-events.jsonl",
+            {
+                "ts": utc_now(),
+                "event": "runner_interrupted",
+                "attempted": len(runnable),
+                "failed": failed,
+                "elapsed_seconds": elapsed_since(run_started),
+            },
+        )
         logger.log("run aborted by keyboard interrupt")
+        write_auto_report(config_path, logger)
         print("\nAborted.")
         return 130
 
     write_latest_manifest(manifest_path, latest_path)
-    logger.log(f"run complete: run_dir={run_dir} attempted={len(runnable)} failed={failed}")
+    run_elapsed = elapsed_since(run_started)
+    append_jsonl(
+        run_dir / "run-events.jsonl",
+        {
+            "ts": utc_now(),
+            "event": "runner_complete",
+            "attempted": len(runnable),
+            "failed": failed,
+            "elapsed_seconds": run_elapsed,
+        },
+    )
+    logger.log(f"run complete: run_dir={run_dir} attempted={len(runnable)} failed={failed} elapsed_seconds={run_elapsed:.3f}")
+    report_ok = write_auto_report(config_path, logger)
     print(f"Run complete: {run_dir}")
     print(f"Items total: {len(items)}; attempted: {len(runnable)}")
+    print(f"Report: {run_dir / 'report.md'}")
     if failed:
         print(f"Failed: {failed}", file=sys.stderr)
+        return 1
+    if not report_ok:
+        print("Report generation failed.", file=sys.stderr)
         return 1
     return 0
 
