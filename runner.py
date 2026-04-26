@@ -325,6 +325,7 @@ def pi_args(
         "--no-tools",
         "--no-skills",
         "--no-prompt-templates",
+        "--no-context-files",
         "--session-dir",
         str(session_dir),
         "--model",
