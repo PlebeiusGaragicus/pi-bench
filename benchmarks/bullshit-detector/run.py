@@ -26,10 +26,13 @@ from yaml_loader import load_yaml  # noqa: E402
 DEFAULT_MODELS_FILE = Path.home() / ".pi" / "agent" / "models.json"
 BENCHMARK_NAME = "bullshit-detector"
 CASE_FILE = "../../questions.yml"
+ANSWER_PROMPT_FILE = "../../answer-prompts.yml"
 JUDGE_TEMPLATE_FILE = "../../judge-template.md"
 PARSER_SCRIPT = "../../collate.py"
 REASONING_MODES = ["off", "low", "medium", "high"]
 QUESTIONS_FILE = BENCHMARK_DIR / "questions.yml"
+ANSWER_PROMPTS_FILE = BENCHMARK_DIR / "answer-prompts.yml"
+DEFAULT_ANSWER_PROMPT_IDS = ["baseline-helpful"]
 
 
 @dataclass
@@ -49,6 +52,13 @@ class InterruptedRun:
     run_id: str
     complete_items: int
     total_items: int
+
+
+@dataclass
+class AnswerPromptInfo:
+    id: str
+    description: str
+    text: str
 
 
 def timestamp_run_id() -> str:
@@ -170,9 +180,18 @@ def config_text(config: dict[str, Any]) -> str:
         f"benchmark_name: {config['benchmark_name']}",
         f"run_id: {config['run_id']}",
         f"case_file: {config['case_file']}",
+        f"answer_prompt_file: {config['answer_prompt_file']}",
         "",
-        "models:",
+        "answer_prompts:",
     ]
+    for prompt_id in config["answer_prompts"]:
+        lines.append(f"  - {prompt_id}")
+    lines.extend(
+        [
+            "",
+            "models:",
+        ]
+    )
     for model in config["models"]:
         lines.extend(
             [
@@ -247,6 +266,66 @@ def benchmark_question_count() -> int:
     return count_cases(QUESTIONS_FILE)
 
 
+def load_answer_prompt_catalog(path: Path = ANSWER_PROMPTS_FILE) -> list[AnswerPromptInfo]:
+    data = load_yaml(path)
+    prompts = data.get("prompts") if isinstance(data, dict) else None
+    if not isinstance(prompts, list) or not prompts:
+        raise SystemExit(f"Expected {path} to contain a non-empty top-level 'prompts' list")
+
+    catalog: list[AnswerPromptInfo] = []
+    seen: set[str] = set()
+    for index, prompt in enumerate(prompts, start=1):
+        if not isinstance(prompt, dict):
+            raise SystemExit(f"Prompt {index} in {path} must be a mapping")
+        prompt_id = str(prompt.get("id") or "").strip()
+        prompt_text = str(prompt.get("text") or "")
+        if not prompt_id:
+            raise SystemExit(f"Prompt {index} in {path} is missing 'id'")
+        if prompt_id in seen:
+            raise SystemExit(f"Duplicate prompt id in {path}: {prompt_id}")
+        if not prompt_text.strip():
+            raise SystemExit(f"Prompt {prompt_id} in {path} is missing non-empty 'text'")
+        seen.add(prompt_id)
+        catalog.append(
+            AnswerPromptInfo(
+                id=prompt_id,
+                description=str(prompt.get("description") or ""),
+                text=prompt_text,
+            )
+        )
+    return catalog
+
+
+def answer_prompt_label(prompt: AnswerPromptInfo) -> str:
+    if prompt.description:
+        return f"{prompt.id} ({prompt.description})"
+    return prompt.id
+
+
+def select_answer_prompts(args: argparse.Namespace) -> list[str]:
+    catalog = load_answer_prompt_catalog()
+    by_id = {prompt.id: prompt for prompt in catalog}
+    supplied = parse_csv(args.answer_prompts)
+    if supplied is not None:
+        if not supplied:
+            raise SystemExit("--answer-prompts must include at least one prompt id")
+        unknown = [prompt_id for prompt_id in supplied if prompt_id not in by_id]
+        if unknown:
+            available = ", ".join(sorted(by_id))
+            raise SystemExit(f"Unknown answer prompt(s): {', '.join(unknown)}. Available prompts: {available}")
+        return supplied
+
+    ids = [prompt.id for prompt in catalog]
+    default_indexes = [ids.index(prompt_id) + 1 for prompt_id in DEFAULT_ANSWER_PROMPT_IDS if prompt_id in ids] or [1]
+    if not sys.stdin.isatty():
+        return [ids[index - 1] for index in default_indexes]
+
+    labels = [answer_prompt_label(prompt) for prompt in catalog]
+    selected_labels = select_many("Answer prompt variants:", labels, None, default_indexes)
+    by_label = dict(zip(labels, catalog, strict=True))
+    return [by_label[label].id for label in selected_labels if label in by_label]
+
+
 def count_config_matrix_items(config_path: Path) -> int:
     config = load_yaml(config_path)
     if not isinstance(config, dict):
@@ -255,7 +334,21 @@ def count_config_matrix_items(config_path: Path) -> int:
     models = config.get("models")
     if not isinstance(models, list):
         return 0
-    return count_cases(case_file) * len(models)
+    answer_prompts = config.get("answer_prompts")
+    if not isinstance(answer_prompts, list):
+        return 0
+    return count_cases(case_file) * len(models) * len(answer_prompts)
+
+
+def count_config_matrix_items_per_question(config_path: Path) -> int:
+    config = load_yaml(config_path)
+    if not isinstance(config, dict):
+        return 0
+    models = config.get("models")
+    answer_prompts = config.get("answer_prompts")
+    if not isinstance(models, list) or not isinstance(answer_prompts, list):
+        return 0
+    return len(models) * len(answer_prompts)
 
 
 def count_complete_items(latest_path: Path) -> int:
@@ -599,6 +692,7 @@ def select_judge_reasoning(judge_model: str, models: list[ModelInfo], args: argp
 
 
 def build_config(models: list[ModelInfo], args: argparse.Namespace, run_id: str) -> dict[str, Any]:
+    answer_prompts = select_answer_prompts(args)
     selected_answer_models = select_models("Answer models:", models, parse_csv(args.models), [1])
     model_entries = selected_model_entries(selected_answer_models, args)
     judge_model = select_judge_model(models, args)
@@ -608,6 +702,8 @@ def build_config(models: list[ModelInfo], args: argparse.Namespace, run_id: str)
         "benchmark_name": BENCHMARK_NAME,
         "run_id": run_id,
         "case_file": CASE_FILE,
+        "answer_prompt_file": ANSWER_PROMPT_FILE,
+        "answer_prompts": answer_prompts,
         "models": model_entries,
         "judge": {
             "model": judge_model,
@@ -624,15 +720,17 @@ def print_summary(config_path: Path, config: dict[str, Any], launch_args: list[s
     models = config["models"]
     unique_models = sorted({model["id"] for model in models})
     unique_reasoning = sorted({model["reasoning"] for model in models})
+    answer_prompts = config["answer_prompts"]
     command = [sys.executable, str(REPO_ROOT / "runner.py"), str(config_path), *launch_args]
     print("")
     print("Run summary")
     print(f"  Config: {config_path.relative_to(REPO_ROOT)}")
     print(f"  Run id: {config['run_id']}")
+    print(f"  Answer prompts: {', '.join(answer_prompts)}")
     print(f"  Answer models: {', '.join(unique_models)}")
     print(f"  Reasoning modes: {', '.join(unique_reasoning)}")
     print(f"  Questions available: {question_count}")
-    print(f"  Answer matrix items per case: {len(models)}")
+    print(f"  Answer matrix items per case: {len(models) * len(answer_prompts)}")
     print(f"  Judge: {config['judge']['model']} / reasoning={config['judge']['reasoning']}")
     print(f"  Command: {shlex.join(command)}")
 
@@ -670,6 +768,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-id", help="run id to create; blank defaults to a timestamp")
     parser.add_argument("--models", help="comma-separated answer model ids")
     parser.add_argument("--reasoning", help="comma-separated answer reasoning modes")
+    parser.add_argument("--answer-prompts", help="comma-separated answer prompt ids from answer-prompts.yml")
     parser.add_argument("--judge-model")
     parser.add_argument("--judge-reasoning")
     parser.add_argument("--assume-reasoning", action="store_true", help="offer reasoning modes for models with unknown support")
@@ -699,7 +798,11 @@ def main() -> int:
         break
 
     if existing_action == "use":
-        launch_args = launch_args_from_inputs(args, benchmark_question_count(), 1)
+        launch_args = launch_args_from_inputs(
+            args,
+            benchmark_question_count(),
+            count_config_matrix_items_per_question(config_path),
+        )
         command = [sys.executable, str(REPO_ROOT / "runner.py"), str(config_path), *launch_args]
         print(f"Launching: {shlex.join(command)}")
         if args.no_launch:
@@ -710,7 +813,7 @@ def main() -> int:
     models = discover_models(providers, should_expand_models(args))
     config = build_config(models, args, run_id)
     question_count = benchmark_question_count()
-    launch_args = launch_args_from_inputs(args, question_count, len(config["models"]))
+    launch_args = launch_args_from_inputs(args, question_count, len(config["models"]) * len(config["answer_prompts"]))
     print_summary(config_path, config, launch_args, question_count)
     if not args.yes and sys.stdin.isatty() and not prompt_bool("Write config and launch", True):
         raise SystemExit("Aborted.")

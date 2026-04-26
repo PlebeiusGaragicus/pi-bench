@@ -73,10 +73,14 @@ def slugify(value: str) -> str:
     return value.strip("-") or "item"
 
 
-def stable_item_id(case_id: str, model_id: str, reasoning: str) -> str:
-    base = f"{case_id}__{model_id}__{reasoning}"
+def stable_item_id(case_id: str, model_id: str, reasoning: str, answer_prompt_id: str) -> str:
+    base = f"{case_id}__{model_id}__{reasoning}__{answer_prompt_id}"
     digest = hashlib.sha1(base.encode("utf-8")).hexdigest()[:8]
-    return f"{slugify(case_id)}__{slugify(model_id)}__{slugify(reasoning)}__{digest}"
+    return f"{slugify(case_id)}__{slugify(model_id)}__{slugify(reasoning)}__{slugify(answer_prompt_id)}__{digest}"
+
+
+def stable_text_sha256(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def text_from_message(message: dict[str, Any]) -> str:
@@ -144,7 +148,62 @@ def load_cases(case_file: Path) -> list[dict[str, Any]]:
     return load_cases_from_data(case_file, load_case_data(case_file))
 
 
-def expand_matrix(config: dict[str, Any], cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def load_answer_prompts(config: dict[str, Any], config_dir: Path) -> list[dict[str, Any]]:
+    prompt_file_value = config.get("answer_prompt_file")
+    if not prompt_file_value:
+        raise SystemExit("Config must contain 'answer_prompt_file'")
+
+    selected_ids = config.get("answer_prompts")
+    if not isinstance(selected_ids, list) or not selected_ids:
+        raise SystemExit("Config must contain a non-empty 'answer_prompts' list")
+
+    prompt_file = resolve_path(config_dir, str(prompt_file_value))
+    data = load_yaml(prompt_file)
+    prompts_data = data.get("prompts") if isinstance(data, dict) else None
+    if not isinstance(prompts_data, list) or not prompts_data:
+        raise SystemExit(f"Expected {prompt_file} to contain a non-empty top-level 'prompts' list")
+
+    prompts_by_id: dict[str, dict[str, Any]] = {}
+    for index, prompt in enumerate(prompts_data, start=1):
+        if not isinstance(prompt, dict):
+            raise SystemExit(f"Prompt {index} in {prompt_file} must be a mapping")
+        prompt_id = str(prompt.get("id") or "").strip()
+        prompt_text = str(prompt.get("text") or "")
+        if not prompt_id:
+            raise SystemExit(f"Prompt {index} in {prompt_file} is missing 'id'")
+        if prompt_id in prompts_by_id:
+            raise SystemExit(f"Duplicate prompt id in {prompt_file}: {prompt_id}")
+        if not prompt_text.strip():
+            raise SystemExit(f"Prompt {prompt_id} in {prompt_file} is missing non-empty 'text'")
+        prompts_by_id[prompt_id] = {
+            "id": prompt_id,
+            "description": str(prompt.get("description") or ""),
+            "text": prompt_text,
+            "sha256": stable_text_sha256(prompt_text),
+        }
+
+    selected: list[dict[str, Any]] = []
+    seen_selected: set[str] = set()
+    for raw_id in selected_ids:
+        prompt_id = str(raw_id).strip()
+        if not prompt_id:
+            raise SystemExit("answer_prompts contains an empty prompt id")
+        if prompt_id in seen_selected:
+            raise SystemExit(f"Duplicate selected answer prompt: {prompt_id}")
+        prompt = prompts_by_id.get(prompt_id)
+        if prompt is None:
+            available = ", ".join(sorted(prompts_by_id))
+            raise SystemExit(f"Unknown answer prompt '{prompt_id}'. Available prompts: {available}")
+        seen_selected.add(prompt_id)
+        selected.append(prompt)
+    return selected
+
+
+def expand_matrix(
+    config: dict[str, Any],
+    cases: list[dict[str, Any]],
+    answer_prompts: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     models = config.get("models")
     if not isinstance(models, list) or not models:
         raise SystemExit("Config must contain a non-empty 'models' list")
@@ -155,15 +214,17 @@ def expand_matrix(config: dict[str, Any], cases: list[dict[str, Any]]) -> list[d
             if not isinstance(model, dict) or not model.get("id"):
                 raise SystemExit("Each model must be a mapping with an 'id'")
             reasoning = str(model.get("reasoning", "off"))
-            item_id = stable_item_id(case["id"], str(model["id"]), reasoning)
-            items.append(
-                {
-                    "item_id": item_id,
-                    "case": case,
-                    "model": model,
-                    "reasoning": reasoning,
-                }
-            )
+            for answer_prompt in answer_prompts:
+                item_id = stable_item_id(case["id"], str(model["id"]), reasoning, str(answer_prompt["id"]))
+                items.append(
+                    {
+                        "item_id": item_id,
+                        "case": case,
+                        "model": model,
+                        "reasoning": reasoning,
+                        "answer_prompt": answer_prompt,
+                    }
+                )
     return items
 
 
@@ -385,6 +446,7 @@ def run_item(
     case = item["case"]
     model = item["model"]
     reasoning = item["reasoning"]
+    answer_prompt = item["answer_prompt"]
     artifact_dir = run_dir / "artifacts" / item_id
     answer_dir = artifact_dir / "answer"
     judge_dir = artifact_dir / "judge"
@@ -404,6 +466,9 @@ def run_item(
         "tags": case.get("tags", []),
         "model": model["id"],
         "reasoning": reasoning,
+        "answer_prompt_id": answer_prompt["id"],
+        "answer_prompt_description": answer_prompt.get("description", ""),
+        "answer_prompt_sha256": answer_prompt["sha256"],
         "judge_model": judge_config.get("model"),
         "judge_reasoning": judge_config.get("reasoning", "off"),
     }
@@ -412,17 +477,31 @@ def run_item(
     timing: dict[str, float] = {}
 
     logger.log(
-        f"[{index}/{total}] case={case['id']} model={model['id']} reasoning={reasoning} item={item_id}"
+        f"[{index}/{total}] case={case['id']} model={model['id']} reasoning={reasoning} "
+        f"answer_prompt={answer_prompt['id']} item={item_id}"
     )
-    logger.log(f"[{index}/{total}] answer start: model={model['id']} case={case['id']}")
-    append_manifest(manifest_path, item_id, "answer_running", case_id=case["id"], model=model["id"])
+    logger.log(
+        f"[{index}/{total}] answer start: model={model['id']} reasoning={reasoning} "
+        f"answer_prompt={answer_prompt['id']} case={case['id']}"
+    )
+    append_manifest(
+        manifest_path,
+        item_id,
+        "answer_running",
+        case_id=case["id"],
+        model=model["id"],
+        reasoning=reasoning,
+        answer_prompt_id=answer_prompt["id"],
+    )
     answer_result = run_pi(
         prompt=case["question"],
-        system_prompt=str(config.get("answer_system_prompt") or ""),
+        system_prompt=str(answer_prompt["text"]),
         model=str(model["id"]),
         reasoning=reasoning,
         artifact_dir=answer_dir,
-        dry_run_text=f"Dry-run answer for {case['id']} from {model['id']}." if dry_run else None,
+        dry_run_text=f"Dry-run answer for {case['id']} from {model['id']} with {answer_prompt['id']}."
+        if dry_run
+        else None,
     )
     timing["answer_seconds"] = float(answer_result.get("elapsed_seconds") or 0.0)
     answer_text = str(answer_result.get("text") or "")
@@ -455,7 +534,10 @@ def run_item(
         )
         return False
     append_manifest(manifest_path, item_id, "answer_complete")
-    logger.log(f"[{index}/{total}] answer complete: model={model['id']} case={case['id']}")
+    logger.log(
+        f"[{index}/{total}] answer complete: model={model['id']} "
+        f"answer_prompt={answer_prompt['id']} case={case['id']}"
+    )
 
     judge_template = read_text(resolve_path(config_dir, str(judge_config["template_file"])))
     judge_prompt = render_template(
@@ -541,6 +623,286 @@ def run_item(
     return True
 
 
+def output_elapsed(path: Path) -> float | None:
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(read_text(path))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    value = data.get("elapsed_seconds")
+    if isinstance(value, int | float):
+        return float(value)
+    return None
+
+
+def item_paths(run_dir: Path, item_id: str) -> dict[str, Path]:
+    artifact_dir = run_dir / "artifacts" / item_id
+    answer_dir = artifact_dir / "answer"
+    judge_dir = artifact_dir / "judge"
+    return {
+        "artifact_dir": artifact_dir,
+        "answer_dir": answer_dir,
+        "judge_dir": judge_dir,
+        "parsed_path": artifact_dir / "parsed.json",
+        "metadata_path": artifact_dir / "metadata.json",
+        "answer_text_path": answer_dir / "answer.txt",
+        "answer_output_path": answer_dir / "output.json",
+        "judge_text_path": judge_dir / "judge.txt",
+        "judge_output_path": judge_dir / "output.json",
+    }
+
+
+def item_metadata(item: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+    case = item["case"]
+    model = item["model"]
+    answer_prompt = item["answer_prompt"]
+    judge_config = config.get("judge") or {}
+    return {
+        "benchmark_name": config.get("benchmark_name"),
+        "run_id": config.get("run_id"),
+        "item_id": item["item_id"],
+        "case_id": case["id"],
+        "question": case["question"],
+        "nonsensical_element": case.get("nonsensical_element", ""),
+        "tags": case.get("tags", []),
+        "model": model["id"],
+        "reasoning": item["reasoning"],
+        "answer_prompt_id": answer_prompt["id"],
+        "answer_prompt_description": answer_prompt.get("description", ""),
+        "answer_prompt_sha256": answer_prompt["sha256"],
+        "judge_model": judge_config.get("model"),
+        "judge_reasoning": judge_config.get("reasoning", "off"),
+    }
+
+
+def artifact_timing(paths: dict[str, Path]) -> dict[str, float]:
+    timing: dict[str, float] = {}
+    answer_seconds = output_elapsed(paths["answer_output_path"])
+    judge_seconds = output_elapsed(paths["judge_output_path"])
+    if answer_seconds is not None:
+        timing["answer_seconds"] = answer_seconds
+    if judge_seconds is not None:
+        timing["judge_seconds"] = judge_seconds
+    return timing
+
+
+def total_item_seconds(timing: dict[str, float]) -> float:
+    return sum(timing.get(field, 0.0) for field in ["answer_seconds", "judge_seconds", "parse_seconds"])
+
+
+def run_answer_phase_item(
+    *,
+    item: dict[str, Any],
+    index: int,
+    total: int,
+    config: dict[str, Any],
+    run_dir: Path,
+    manifest_path: Path,
+    dry_run: bool,
+    logger: RunLogger,
+) -> bool:
+    item_id = item["item_id"]
+    case = item["case"]
+    model = item["model"]
+    reasoning = item["reasoning"]
+    answer_prompt = item["answer_prompt"]
+    paths = item_paths(run_dir, item_id)
+    metadata = item_metadata(item, config)
+    write_json(paths["metadata_path"], metadata)
+
+    logger.log(
+        f"[{index}/{total}] answer start: model={model['id']} reasoning={reasoning} "
+        f"answer_prompt={answer_prompt['id']} case={case['id']}"
+    )
+    append_manifest(
+        manifest_path,
+        item_id,
+        "answer_running",
+        case_id=case["id"],
+        model=model["id"],
+        reasoning=reasoning,
+        answer_prompt_id=answer_prompt["id"],
+    )
+    answer_result = run_pi(
+        prompt=case["question"],
+        system_prompt=str(answer_prompt["text"]),
+        model=str(model["id"]),
+        reasoning=reasoning,
+        artifact_dir=paths["answer_dir"],
+        dry_run_text=f"Dry-run answer for {case['id']} from {model['id']} with {answer_prompt['id']}."
+        if dry_run
+        else None,
+    )
+    timing = {"answer_seconds": float(answer_result.get("elapsed_seconds") or 0.0)}
+    write_text(paths["answer_text_path"], str(answer_result.get("text") or ""))
+    if answer_result.get("aborted"):
+        logger.log(f"[{index}/{total}] answer aborted: case={case['id']}")
+        timing["item_seconds"] = total_item_seconds(timing)
+        append_manifest(manifest_path, item_id, "interrupted", phase="answer", exit_code=130, timing=timing)
+        raise KeyboardInterrupt
+    if answer_result["exit_code"] != 0:
+        logger.log(f"[{index}/{total}] answer error: exit_code={answer_result['exit_code']} case={case['id']}")
+        timing["item_seconds"] = total_item_seconds(timing)
+        record = error_record(
+            metadata,
+            "answer",
+            answer_result["stderr"].strip() or "answer model exited with an error",
+            exit_code=answer_result["exit_code"],
+            timing=timing,
+        )
+        write_json(paths["parsed_path"], record)
+        append_jsonl(run_dir / "results.jsonl", record)
+        append_manifest(
+            manifest_path,
+            item_id,
+            "complete",
+            status="error",
+            phase="answer",
+            exit_code=answer_result["exit_code"],
+            timing=timing,
+        )
+        return False
+    append_manifest(manifest_path, item_id, "answer_complete")
+    logger.log(
+        f"[{index}/{total}] answer complete: model={model['id']} "
+        f"answer_prompt={answer_prompt['id']} case={case['id']}"
+    )
+    return True
+
+
+def run_judge_phase_item(
+    *,
+    item: dict[str, Any],
+    index: int,
+    total: int,
+    config: dict[str, Any],
+    config_dir: Path,
+    run_dir: Path,
+    manifest_path: Path,
+    dry_run: bool,
+    logger: RunLogger,
+) -> bool:
+    item_id = item["item_id"]
+    case = item["case"]
+    paths = item_paths(run_dir, item_id)
+    metadata = item_metadata(item, config)
+    judge_config = config.get("judge") or {}
+    answer_text = read_text(paths["answer_text_path"])
+    judge_template = read_text(resolve_path(config_dir, str(judge_config["template_file"])))
+    judge_prompt = render_template(
+        judge_template,
+        {
+            **case,
+            "response": answer_text,
+            "nonsensical_element": case.get("nonsensical_element", ""),
+        },
+    )
+    write_json(paths["metadata_path"], metadata)
+    write_text(paths["judge_dir"] / "prompt.txt", judge_prompt)
+
+    logger.log(
+        f"[{index}/{total}] judge start: model={judge_config['model']} "
+        f"reasoning={judge_config.get('reasoning', 'off')} case={case['id']}"
+    )
+    append_manifest(manifest_path, item_id, "judge_running")
+    judge_result = run_pi(
+        prompt=judge_prompt,
+        system_prompt="",
+        model=str(judge_config["model"]),
+        reasoning=str(judge_config.get("reasoning", "off")),
+        artifact_dir=paths["judge_dir"],
+        dry_run_text="Score: 2\nDescription: Dry-run judge output confirms parser and manifest flow." if dry_run else None,
+    )
+    timing = artifact_timing(paths)
+    timing["judge_seconds"] = float(judge_result.get("elapsed_seconds") or 0.0)
+    write_text(paths["judge_text_path"], str(judge_result.get("text") or ""))
+    if judge_result.get("aborted"):
+        logger.log(f"[{index}/{total}] judge aborted: case={case['id']}")
+        timing["item_seconds"] = total_item_seconds(timing)
+        append_manifest(manifest_path, item_id, "interrupted", phase="judge", exit_code=130, timing=timing)
+        raise KeyboardInterrupt
+    if judge_result["exit_code"] != 0:
+        logger.log(f"[{index}/{total}] judge error: exit_code={judge_result['exit_code']} case={case['id']}")
+        timing["item_seconds"] = total_item_seconds(timing)
+        record = error_record(
+            metadata,
+            "judge",
+            judge_result["stderr"].strip() or "judge model exited with an error",
+            exit_code=judge_result["exit_code"],
+            timing=timing,
+        )
+        write_json(paths["parsed_path"], record)
+        append_jsonl(run_dir / "results.jsonl", record)
+        append_manifest(
+            manifest_path,
+            item_id,
+            "complete",
+            status="error",
+            phase="judge",
+            exit_code=judge_result["exit_code"],
+            timing=timing,
+        )
+        return False
+    append_manifest(manifest_path, item_id, "judge_complete")
+    logger.log(f"[{index}/{total}] judge complete: model={judge_config['model']} case={case['id']}")
+    return True
+
+
+def run_parse_phase_item(
+    *,
+    item: dict[str, Any],
+    index: int,
+    total: int,
+    config: dict[str, Any],
+    config_dir: Path,
+    run_dir: Path,
+    manifest_path: Path,
+    logger: RunLogger,
+) -> bool:
+    item_id = item["item_id"]
+    case = item["case"]
+    paths = item_paths(run_dir, item_id)
+    metadata = item_metadata(item, config)
+    runner_config = config.get("runner") or {}
+    write_json(paths["metadata_path"], metadata)
+
+    try:
+        parser_script = resolve_path(config_dir, str(runner_config["parser_script"]))
+        logger.log(f"[{index}/{total}] parse start: parser={parser_script} case={case['id']}")
+        parse_started = time.monotonic()
+        parsed = run_parser(parser_script, paths["metadata_path"], paths["judge_text_path"], paths["parsed_path"])
+        timing = artifact_timing(paths)
+        timing["parse_seconds"] = elapsed_since(parse_started)
+    except Exception as exc:  # noqa: BLE001 - preserve parser failure in manifest
+        timing = artifact_timing(paths)
+        if "parse_started" in locals():
+            timing["parse_seconds"] = elapsed_since(parse_started)
+        timing["item_seconds"] = total_item_seconds(timing)
+        logger.log(f"[{index}/{total}] parse error: case={case['id']} error={exc}")
+        record = error_record(metadata, "parse", str(exc), timing=timing)
+        write_json(paths["parsed_path"], record)
+        append_jsonl(run_dir / "results.jsonl", record)
+        append_manifest(manifest_path, item_id, "complete", status="error", phase="parse", error=str(exc), timing=timing)
+        return False
+
+    timing["item_seconds"] = total_item_seconds(timing)
+    parsed["timing"] = timing
+    parsed.setdefault("status", "ok")
+    write_json(paths["parsed_path"], parsed)
+    append_jsonl(run_dir / "results.jsonl", parsed)
+    append_manifest(manifest_path, item_id, "parsed", score=parsed.get("score"))
+    append_manifest(manifest_path, item_id, "complete", score=parsed.get("score"), timing=timing)
+    logger.log(f"[{index}/{total}] complete: case={case['id']} score={parsed.get('score')}")
+    return True
+
+
+def current_state(item: dict[str, Any], states: dict[str, dict[str, Any]]) -> str:
+    return str((states.get(item["item_id"]) or {}).get("state") or "")
+
+
 def write_latest_manifest(manifest_path: Path, latest_path: Path) -> None:
     states = replay_manifest(manifest_path)
     write_json(latest_path, states)
@@ -577,9 +939,8 @@ def main() -> int:
     case_file = resolve_path(config_dir, str(config["case_file"]))
     case_data = load_case_data(case_file)
     cases = load_cases_from_data(case_file, case_data)
-    if not config.get("answer_system_prompt") and case_data.get("answer_system_prompt"):
-        config["answer_system_prompt"] = case_data["answer_system_prompt"]
-    items = expand_matrix(config, cases)
+    answer_prompts = load_answer_prompts(config, config_dir)
+    items = expand_matrix(config, cases, answer_prompts)
     manifest_path = run_dir / "manifest.jsonl"
     latest_path = run_dir / "manifest.latest.json"
     logger = RunLogger(run_dir / "run.log")
@@ -621,16 +982,71 @@ def main() -> int:
 
     failed = 0
     try:
+        logger.log(f"answer phase start: items={len(runnable)}")
         for index, item in enumerate(runnable, start=1):
-            ok = run_item(
+            paths = item_paths(run_dir, item["item_id"])
+            if args.resume and paths["answer_output_path"].exists() and paths["answer_text_path"].exists():
+                logger.log(f"[{index}/{len(runnable)}] answer skip: existing artifact item={item['item_id']}")
+                continue
+            ok = run_answer_phase_item(
                 item=item,
                 index=index,
                 total=len(runnable),
+                config=config,
+                run_dir=run_dir,
+                manifest_path=manifest_path,
+                dry_run=args.dry_run,
+                logger=logger,
+            )
+            if not ok:
+                failed += 1
+                logger.log(f"item recorded with error: item={item['item_id']}")
+            write_latest_manifest(manifest_path, latest_path)
+
+        states = replay_manifest(manifest_path)
+        judge_items = [
+            item
+            for item in runnable
+            if current_state(item, states) != "complete" and item_paths(run_dir, item["item_id"])["answer_text_path"].exists()
+        ]
+        logger.log(f"judge phase start: items={len(judge_items)}")
+        for index, item in enumerate(judge_items, start=1):
+            paths = item_paths(run_dir, item["item_id"])
+            if args.resume and paths["judge_output_path"].exists() and paths["judge_text_path"].exists():
+                logger.log(f"[{index}/{len(judge_items)}] judge skip: existing artifact item={item['item_id']}")
+                continue
+            ok = run_judge_phase_item(
+                item=item,
+                index=index,
+                total=len(judge_items),
                 config=config,
                 config_dir=config_dir,
                 run_dir=run_dir,
                 manifest_path=manifest_path,
                 dry_run=args.dry_run,
+                logger=logger,
+            )
+            if not ok:
+                failed += 1
+                logger.log(f"item recorded with error: item={item['item_id']}")
+            write_latest_manifest(manifest_path, latest_path)
+
+        states = replay_manifest(manifest_path)
+        parse_items = [
+            item
+            for item in runnable
+            if current_state(item, states) != "complete" and item_paths(run_dir, item["item_id"])["judge_text_path"].exists()
+        ]
+        logger.log(f"parse phase start: items={len(parse_items)}")
+        for index, item in enumerate(parse_items, start=1):
+            ok = run_parse_phase_item(
+                item=item,
+                index=index,
+                total=len(parse_items),
+                config=config,
+                config_dir=config_dir,
+                run_dir=run_dir,
+                manifest_path=manifest_path,
                 logger=logger,
             )
             if not ok:

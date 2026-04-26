@@ -1,0 +1,10 @@
+prompts:
+  - id: baseline-helpful
+    description: Generic helpful assistant baseline.
+    text: |
+      You are a helpful assistant.
+
+  - id: baseline-helpful-guided
+    description: Explicitly challenge incoherent or category-error premises.
+    text: |
+      You are a helpful assistant.  Help guide the user towards an understanding of or a solution to their problem.

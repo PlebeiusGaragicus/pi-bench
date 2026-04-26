@@ -26,19 +26,28 @@ def resolve_path(config_dir: Path, value: str) -> Path:
     return (config_dir / path).resolve()
 
 
-def current_matrix_keys(config: dict[str, Any], config_dir: Path) -> set[tuple[str, str, str]]:
+def current_matrix_keys(config: dict[str, Any], config_dir: Path) -> set[tuple[str, str, str, str]]:
     case_file = resolve_path(config_dir, str(config["case_file"]))
     case_data = load_yaml(case_file)
     cases = case_data.get("cases", []) if isinstance(case_data, dict) else []
     models = config.get("models", [])
-    keys: set[tuple[str, str, str]] = set()
+    answer_prompts = config.get("answer_prompts", [])
+    keys: set[tuple[str, str, str, str]] = set()
     for case in cases:
         if not isinstance(case, dict):
             continue
         for model in models:
             if not isinstance(model, dict):
                 continue
-            keys.add((str(case.get("id")), str(model.get("id")), str(model.get("reasoning", "off"))))
+            for prompt_id in answer_prompts:
+                keys.add(
+                    (
+                        str(case.get("id")),
+                        str(model.get("id")),
+                        str(model.get("reasoning", "off")),
+                        str(prompt_id),
+                    )
+                )
     return keys
 
 
@@ -130,12 +139,17 @@ def with_timing_backfill(record: dict[str, Any], artifact_dir: Path, manifest_fa
     return {**record, "timing": fallback}
 
 
-def collect_records(run_dir: Path, allowed_keys: set[tuple[str, str, str]]) -> list[dict[str, Any]]:
+def collect_records(run_dir: Path, allowed_keys: set[tuple[str, str, str, str]]) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     manifest_fallback = manifest_timings(run_dir)
     for parsed_path in sorted((run_dir / "artifacts").glob("*/parsed.json")):
         record = read_json(parsed_path)
-        key = (str(record.get("case_id")), str(record.get("model")), str(record.get("reasoning", "off")))
+        key = (
+            str(record.get("case_id")),
+            str(record.get("model")),
+            str(record.get("reasoning", "off")),
+            str(record.get("answer_prompt_id")),
+        )
         if key in allowed_keys:
             records.append(with_timing_backfill(record, parsed_path.parent, manifest_fallback))
     return records
@@ -148,6 +162,9 @@ def write_csv(records: list[dict[str, Any]], path: Path) -> None:
         "case_id",
         "model",
         "reasoning",
+        "answer_prompt_id",
+        "answer_prompt_description",
+        "answer_prompt_sha256",
         "judge_model",
         "status",
         "phase",
@@ -193,8 +210,21 @@ def grouped_scores(records: list[dict[str, Any]]) -> dict[str, list[float]]:
     return dict(groups)
 
 
+def grouped_prompt_scores(records: list[dict[str, Any]]) -> dict[str, list[float]]:
+    groups: dict[str, list[float]] = defaultdict(list)
+    for record in records:
+        if record.get("status") == "error" or record.get("score") in {"", None}:
+            continue
+        groups[prompt_label(record)].append(float(record["score"]))
+    return dict(groups)
+
+
 def model_label(record: dict[str, Any]) -> str:
-    return f"{record.get('model')} / thinking={record.get('reasoning')}"
+    return f"{record.get('model')} / thinking={record.get('reasoning')} / prompt={prompt_label(record)}"
+
+
+def prompt_label(record: dict[str, Any]) -> str:
+    return str(record.get("answer_prompt_id") or "")
 
 
 def reasoning_sort_key(value: str) -> tuple[int, str]:
@@ -218,25 +248,32 @@ def case_results_markdown(records: list[dict[str, Any]]) -> list[str]:
         lines.append(f"### `{model}`")
         lines.append("")
         for reasoning in reasonings:
-            slice_records = [
+            reasoning_records = [
                 record for record in model_records if str(record.get("reasoning", "off")) == reasoning
             ]
             lines.append(f"#### `thinking={reasoning}`")
             lines.append("")
-            lines.extend(
-                [
-                    "| Case | Status | Score | Item Seconds | Description |",
-                    "|---|---|---:|---:|---|",
+            prompt_ids = sorted({prompt_label(record) for record in reasoning_records})
+            for prompt_id in prompt_ids:
+                slice_records = [
+                    record for record in reasoning_records if prompt_label(record) == prompt_id
                 ]
-            )
-            for record in sorted(slice_records, key=lambda item: str(item.get("case_id", ""))):
-                desc = str(record.get("description", "")).replace("|", "\\|")
-                status = str(record.get("status") or "ok")
-                item_seconds = format_seconds(timing_value(record, "item_seconds"))
-                lines.append(
-                    f"| `{record.get('case_id')}` | {status} | {record.get('score')} | {item_seconds} | {desc} |"
+                lines.append(f"##### `prompt={prompt_id}`")
+                lines.append("")
+                lines.extend(
+                    [
+                        "| Case | Status | Score | Item Seconds | Description |",
+                        "|---|---|---:|---:|---|",
+                    ]
                 )
-            lines.append("")
+                for record in sorted(slice_records, key=lambda item: str(item.get("case_id", ""))):
+                    desc = str(record.get("description", "")).replace("|", "\\|")
+                    status = str(record.get("status") or "ok")
+                    item_seconds = format_seconds(timing_value(record, "item_seconds"))
+                    lines.append(
+                        f"| `{record.get('case_id')}` | {status} | {record.get('score')} | {item_seconds} | {desc} |"
+                    )
+                lines.append("")
     return lines
 
 
@@ -297,11 +334,11 @@ def maybe_write_plots(records: list[dict[str, Any]], plots_dir: Path) -> list[st
         ax.bar(labels, averages)
         ax.set_ylim(0, 2)
         ax.set_ylabel("Average Score")
-        ax.set_title("Average BullshitBench Score By Model")
+        ax.set_title("Average BullshitBench Score By Matrix Item")
         ax.tick_params(axis="x", labelrotation=30)
         fig.tight_layout()
 
-        output = plots_dir / "average-score-by-model.png"
+        output = plots_dir / "average-score-by-matrix-item.png"
         fig.savefig(output)
         plt.close(fig)
         plot_paths.append(str(output.relative_to(plots_dir.parent)))
@@ -332,11 +369,11 @@ def maybe_write_plots(records: list[dict[str, Any]], plots_dir: Path) -> list[st
         fig, ax = plt.subplots(figsize=(width, 4.5))
         ax.bar(labels, averages)
         ax.set_ylabel("Average Seconds")
-        ax.set_title("Average Item Runtime By Model")
+        ax.set_title("Average Item Runtime By Matrix Item")
         ax.tick_params(axis="x", labelrotation=30)
         fig.tight_layout()
 
-        output = plots_dir / "average-runtime-by-model.png"
+        output = plots_dir / "average-runtime-by-matrix-item.png"
         fig.savefig(output)
         plt.close(fig)
         plot_paths.append(str(output.relative_to(plots_dir.parent)))
@@ -367,11 +404,25 @@ def markdown_report(config: dict[str, Any], records: list[dict[str, Any]], plot_
     else:
         lines.extend(
             [
-                "| Model | Cases | Average Score |",
+                "| Matrix Item | Cases | Average Score |",
                 "|---|---:|---:|",
             ]
         )
         for label, scores in sorted(groups.items()):
+            lines.append(f"| `{label}` | {len(scores)} | {mean(scores):.2f} |")
+
+    prompt_groups = grouped_prompt_scores(records)
+    if len(prompt_groups) > 1:
+        lines.extend(
+            [
+                "",
+                "## Prompt Comparison",
+                "",
+                "| Answer Prompt | Cases | Average Score |",
+                "|---|---:|---:|",
+            ]
+        )
+        for label, scores in sorted(prompt_groups.items()):
             lines.append(f"| `{label}` | {len(scores)} | {mean(scores):.2f} |")
 
     totals = timing_totals(records)
@@ -388,7 +439,7 @@ def markdown_report(config: dict[str, Any], records: list[dict[str, Any]], plot_
                 f"| Parse | {totals['parse_seconds']:.2f} |",
                 f"| Item total | {totals['item_seconds']:.2f} |",
                 "",
-                "| Model | Cases | Avg Answer Seconds | Avg Judge Seconds | Avg Parse Seconds | Avg Item Seconds |",
+                "| Matrix Item | Cases | Avg Answer Seconds | Avg Judge Seconds | Avg Parse Seconds | Avg Item Seconds |",
                 "|---|---:|---:|---:|---:|---:|",
             ]
         )

@@ -4,8 +4,9 @@ BullshitBench measures whether models detect nonsense, call it out clearly,
 and avoid confidently continuing with invalid assumptions.
 
 Each case asks a professional-sounding but nonsensical question. The answer
-model receives only the question. The judge receives the question, the model
-response, and the known `nonsensical_element` hint.
+model receives only the question plus one selected system prompt from
+`answer-prompts.yml`. The judge receives the question, the model response, and
+the known `nonsensical_element` hint.
 
 ## Launching A Run
 
@@ -18,8 +19,9 @@ Use the root benchmark wrapper from the repository root:
 The launcher first checks for interrupted runs and offers to resume one. For new
 runs, it reads providers from `~/.pi/agent/models.json`, asks which providers to
 use, asks for the run id, asks whether to expand providers through `/v1/models`,
-then asks for answer models, reasoning modes, judge model, judge reasoning,
-question count, and launch flags. Leaving the run id blank uses a timestamp.
+then asks for answer prompt variants, answer models, reasoning modes, judge
+model, judge reasoning, question count, and launch flags. Leaving the run id
+blank uses a timestamp.
 
 Reasoning support comes from model metadata when present. Models with unknown
 reasoning support default to `off` unless you enable reasoning interactively or
@@ -28,11 +30,32 @@ pass `--assume-reasoning`.
 Run progress is verbose in the terminal and is also written to
 `runs/<run-id>/run.log`.
 
+The runner executes in phases to avoid unnecessary model swaps on self-hosted
+inference: it collects all answers for the runnable matrix first, then judges
+all completed answers, then parses and reports the judged outputs.
+
 For a non-interactive dry run:
 
 ```bash
-./bench run bullshit-detector --providers plebchat --model-source configured --models plebchat/qwen/qwen3-coder-next --reasoning off --limit 1 --dry-run --yes
+./bench run bullshit-detector --providers plebchat --model-source configured --models plebchat/qwen/qwen3-coder-next --reasoning off --answer-prompts baseline-helpful,premise-skeptic --limit 1 --dry-run --yes
 ```
+
+## Answer Prompts
+
+Answer prompts are benchmark inputs, not ad hoc launcher state. Named variants
+live in `answer-prompts.yml`, and each run config selects one or more prompt ids:
+
+```yaml
+answer_prompt_file: ../../answer-prompts.yml
+answer_prompts:
+  - baseline-helpful
+  - premise-skeptic
+```
+
+The runner expands prompts as a first-class matrix dimension:
+`case x model x reasoning x answer_prompt`. Reports, CSV output, JSONL output,
+artifact metadata, and artifact paths all include `answer_prompt_id`. Each answer
+artifact also stores the concrete prompt text in `answer/system-prompt.md`.
 
 ## Score Rubric
 
