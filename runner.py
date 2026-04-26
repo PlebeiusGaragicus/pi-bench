@@ -91,6 +91,15 @@ def text_from_message(message: dict[str, Any]) -> str:
     return "\n".join(chunks).strip()
 
 
+def thoughts_from_message(message: dict[str, Any]) -> str:
+    chunks = []
+    for item in message.get("content") or []:
+        if not isinstance(item, dict) or item.get("type") != "thinking":
+            continue
+        chunks.append(str(item.get("thinking") or item.get("text") or ""))
+    return "\n".join(chunk for chunk in chunks if chunk).strip()
+
+
 def compact_message_metadata(message: dict[str, Any]) -> dict[str, Any]:
     fields = ["api", "provider", "model", "usage", "stopReason", "timestamp", "responseId", "errorMessage"]
     return {field: message[field] for field in fields if field in message}
@@ -116,9 +125,10 @@ def parse_final_output(event_stream: str) -> dict[str, Any]:
         final_message = message
 
     if final_message is None:
-        return {"text": "", "metadata": {}, "event_count": event_count}
+        return {"text": "", "thoughts": "", "metadata": {}, "event_count": event_count}
     return {
         "text": text_from_message(final_message),
+        "thoughts": thoughts_from_message(final_message),
         "metadata": compact_message_metadata(final_message),
         "event_count": event_count,
     }
@@ -354,6 +364,7 @@ def run_pi(
         elapsed = elapsed_since(started)
         output = {
             "text": dry_run_text,
+            "thoughts": "",
             "metadata": {"dry_run": True},
             "event_count": 1,
             "elapsed_seconds": elapsed,
@@ -547,6 +558,9 @@ def run_item(
     timing["answer_seconds"] = float(answer_result.get("elapsed_seconds") or 0.0)
     answer_text = str(answer_result.get("text") or "")
     write_text(answer_dir / "answer.txt", answer_text)
+    answer_thoughts = str(answer_result.get("output", {}).get("thoughts") or answer_result.get("thoughts") or "")
+    if answer_thoughts.strip():
+        write_text(answer_dir / "thoughts.txt", answer_thoughts)
     if answer_result.get("aborted"):
         logger.log(f"[{index}/{total}] answer aborted: case={case['id']}")
         timing["item_seconds"] = elapsed_since(item_started)
@@ -690,6 +704,7 @@ def item_paths(run_dir: Path, item_id: str) -> dict[str, Path]:
         "parsed_path": artifact_dir / "parsed.json",
         "metadata_path": artifact_dir / "metadata.json",
         "answer_text_path": answer_dir / "answer.txt",
+        "answer_thoughts_path": answer_dir / "thoughts.txt",
         "answer_output_path": answer_dir / "output.json",
         "judge_text_path": judge_dir / "judge.txt",
         "judge_output_path": judge_dir / "output.json",
@@ -779,6 +794,9 @@ def run_answer_phase_item(
     )
     timing = {"answer_seconds": float(answer_result.get("elapsed_seconds") or 0.0)}
     write_text(paths["answer_text_path"], str(answer_result.get("text") or ""))
+    answer_thoughts = str(answer_result.get("output", {}).get("thoughts") or answer_result.get("thoughts") or "")
+    if answer_thoughts.strip():
+        write_text(paths["answer_thoughts_path"], answer_thoughts)
     if answer_result.get("aborted"):
         logger.log(f"[{index}/{total}] answer aborted: case={case['id']}")
         timing["item_seconds"] = total_item_seconds(timing)

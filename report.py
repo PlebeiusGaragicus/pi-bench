@@ -19,6 +19,13 @@ def read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def read_text_if_exists(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 def resolve_path(config_dir: Path, value: str) -> Path:
     path = Path(value)
     if path.is_absolute():
@@ -277,6 +284,141 @@ def case_results_markdown(records: list[dict[str, Any]]) -> list[str]:
     return lines
 
 
+def artifact_dir_for_record(run_dir: Path, record: dict[str, Any]) -> Path:
+    return run_dir / "artifacts" / str(record.get("item_id") or "")
+
+
+def output_usage_summary(output_path: Path) -> str:
+    try:
+        output = read_json(output_path)
+    except (OSError, json.JSONDecodeError):
+        return ""
+    if not isinstance(output, dict):
+        return ""
+    metadata = output.get("metadata")
+    if not isinstance(metadata, dict):
+        return ""
+    usage = metadata.get("usage")
+    if not isinstance(usage, dict):
+        return ""
+    parts = []
+    for label, field in [("input", "input"), ("output", "output"), ("total", "totalTokens")]:
+        value = usage.get(field)
+        if isinstance(value, int | float):
+            parts.append(f"{label}={value}")
+    return ", ".join(parts)
+
+
+def thoughts_from_session_dir(session_dir: Path) -> str:
+    for session_path in sorted(session_dir.glob("*.jsonl")):
+        final_message: dict[str, Any] | None = None
+        try:
+            lines = session_path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict) or event.get("type") != "message":
+                continue
+            message = event.get("message")
+            if isinstance(message, dict) and message.get("role") == "assistant":
+                final_message = message
+        if final_message is None:
+            continue
+        chunks = []
+        for item in final_message.get("content") or []:
+            if isinstance(item, dict) and item.get("type") == "thinking":
+                chunks.append(str(item.get("thinking") or item.get("text") or ""))
+        thoughts = "\n".join(chunk for chunk in chunks if chunk).strip()
+        if thoughts:
+            return thoughts
+    return ""
+
+
+def student_output_markdown(config: dict[str, Any], records: list[dict[str, Any]], run_dir: Path) -> str:
+    benchmark_name = config.get("benchmark_name", "benchmark")
+    run_id = config.get("run_id", "run")
+    lines = [
+        f"# {benchmark_name} Student Output",
+        "",
+        f"Run: `{run_id}`",
+        "",
+        "This report collects answer-model prompts, captured thoughts, and final answers for quick researcher review.",
+        "",
+    ]
+
+    models = sorted({str(record.get("model", "")) for record in records})
+    for model in models:
+        model_records = [record for record in records if str(record.get("model", "")) == model]
+        lines.extend([f"## `{model}`", ""])
+        reasonings = sorted({str(record.get("reasoning", "off")) for record in model_records}, key=reasoning_sort_key)
+        for reasoning in reasonings:
+            reasoning_records = [record for record in model_records if str(record.get("reasoning", "off")) == reasoning]
+            lines.extend([f"### `thinking={reasoning}`", ""])
+            prompt_ids = sorted({prompt_label(record) for record in reasoning_records})
+            for prompt_id in prompt_ids:
+                prompt_records = [record for record in reasoning_records if prompt_label(record) == prompt_id]
+                description = str(prompt_records[0].get("answer_prompt_description") or "")
+                lines.extend([f"#### `prompt={prompt_id}`", ""])
+                if description:
+                    lines.extend([description, ""])
+                for record in sorted(prompt_records, key=lambda item: str(item.get("case_id", ""))):
+                    artifact_dir = artifact_dir_for_record(run_dir, record)
+                    answer_dir = artifact_dir / "answer"
+                    answer_output_path = answer_dir / "output.json"
+                    system_prompt = read_text_if_exists(answer_dir / "system-prompt.md")
+                    thoughts = read_text_if_exists(answer_dir / "thoughts.txt")
+                    if not thoughts:
+                        try:
+                            answer_output = read_json(answer_output_path)
+                        except (OSError, json.JSONDecodeError):
+                            answer_output = {}
+                        if isinstance(answer_output, dict):
+                            thoughts = str(answer_output.get("thoughts") or "").strip()
+                    if not thoughts:
+                        thoughts = thoughts_from_session_dir(answer_dir / "sessions")
+                    answer = read_text_if_exists(answer_dir / "answer.txt")
+                    usage = output_usage_summary(answer_output_path)
+                    status = str(record.get("status") or "ok")
+                    score = record.get("score", "")
+                    item_seconds = format_seconds(timing_value(record, "item_seconds"))
+
+                    lines.extend(
+                        [
+                            f"##### `{record.get('case_id')}`",
+                            "",
+                            "**Context**",
+                            "",
+                            f"- Status: `{status}`",
+                            f"- Score: `{score}`",
+                            f"- Model: `{record.get('model')}`",
+                            f"- Reasoning: `{record.get('reasoning')}`",
+                            f"- Answer prompt: `{record.get('answer_prompt_id')}`",
+                            f"- Answer prompt SHA-256: `{record.get('answer_prompt_sha256')}`",
+                            f"- Judge: `{record.get('judge_model')}` / reasoning=`{record.get('judge_reasoning')}`",
+                            f"- Item seconds: `{item_seconds}`",
+                        ]
+                    )
+                    if usage:
+                        lines.append(f"- Answer usage: `{usage}`")
+                    lines.append("")
+
+                    lines.extend(["**System Prompt**", ""])
+                    lines.extend(fenced_block(system_prompt or "_No system prompt captured._", "text"))
+                    lines.extend(["", "**Test Prompt**", ""])
+                    lines.extend(fenced_block(str(record.get("question") or ""), "text"))
+                    lines.extend(["", "**Thoughts**", ""])
+                    lines.extend(fenced_block(thoughts or "_No thoughts captured._", "text"))
+                    lines.extend(["", "**Answer**", ""])
+                    lines.extend(fenced_block(answer or "_No answer captured._", "markdown"))
+                    lines.append("")
+
+    return "\n".join(lines)
+
+
 def timing_value(record: dict[str, Any], field: str) -> float | str:
     timing = record.get("timing")
     if not isinstance(timing, dict):
@@ -308,6 +450,13 @@ def format_seconds(value: float | str) -> str:
     if value == "":
         return ""
     return f"{float(value):.2f}"
+
+
+def fenced_block(value: str, language: str = "text") -> list[str]:
+    fence = "```"
+    while fence in value:
+        fence += "`"
+    return [f"{fence}{language}", value.rstrip() or "_Empty._", fence]
 
 
 def average_seconds(values: list[float]) -> str:
@@ -489,7 +638,9 @@ def generate_report(config_path: Path) -> dict[str, Any]:
     plot_paths = maybe_write_plots(records, run_dir / "plots")
     report_path = run_dir / "report.md"
     report_path.write_text(markdown_report(config, records, plot_paths), encoding="utf-8")
-    return {"report_path": report_path, "records": len(records), "plots": plot_paths}
+    student_output_path = run_dir / "student_output.md"
+    student_output_path.write_text(student_output_markdown(config, records, run_dir), encoding="utf-8")
+    return {"report_path": report_path, "student_output_path": student_output_path, "records": len(records), "plots": plot_paths}
 
 
 def main() -> int:
@@ -499,6 +650,7 @@ def main() -> int:
 
     summary = generate_report(args.config)
     print(f"Wrote report: {summary['report_path']}")
+    print(f"Wrote student output: {summary['student_output_path']}")
     print(f"Records: {summary['records']}")
     return 0
 
