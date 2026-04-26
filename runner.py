@@ -515,7 +515,7 @@ def run_item(
         "item_id": item_id,
         "case_id": case["id"],
         "question": case["question"],
-        "nonsensical_element": case.get("nonsensical_element", ""),
+        "judge_hint": case.get("judge_hint", ""),
         "tags": case.get("tags", []),
         "model": model["id"],
         "reasoning": reasoning,
@@ -601,7 +601,7 @@ def run_item(
         {
             **case,
             "response": answer_text,
-            "nonsensical_element": case.get("nonsensical_element", ""),
+            "judge_hint": case.get("judge_hint", ""),
         },
     )
     write_text(judge_dir / "prompt.txt", judge_prompt)
@@ -723,7 +723,7 @@ def item_metadata(item: dict[str, Any], config: dict[str, Any]) -> dict[str, Any
         "item_id": item["item_id"],
         "case_id": case["id"],
         "question": case["question"],
-        "nonsensical_element": case.get("nonsensical_element", ""),
+        "judge_hint": case.get("judge_hint", ""),
         "tags": case.get("tags", []),
         "model": model["id"],
         "reasoning": item["reasoning"],
@@ -857,7 +857,7 @@ def run_judge_phase_item(
         {
             **case,
             "response": answer_text,
-            "nonsensical_element": case.get("nonsensical_element", ""),
+            "judge_hint": case.get("judge_hint", ""),
         },
     )
     write_json(paths["metadata_path"], metadata)

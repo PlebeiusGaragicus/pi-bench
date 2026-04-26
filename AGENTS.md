@@ -154,10 +154,10 @@ For `bullshit-detector`, each case has:
 
 - `id`
 - `question`
-- `nonsensical_element`
+- `judge_hint`
 
 The answer model receives only `question`. The judge template receives
-`question`, `response`, and `nonsensical_element`.
+`question`, `response`, and `judge_hint`.
 
 ## Agent Notes
 

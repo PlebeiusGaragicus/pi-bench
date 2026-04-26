@@ -6,7 +6,7 @@ and avoid confidently continuing with invalid assumptions.
 Each case asks a professional-sounding but nonsensical question. The answer
 model receives only the question plus one selected system prompt from
 `answer-prompts.yml`. The judge receives the question, the model response, and
-the known `nonsensical_element` hint.
+the known `judge_hint` text.
 
 ## Launching A Run
 

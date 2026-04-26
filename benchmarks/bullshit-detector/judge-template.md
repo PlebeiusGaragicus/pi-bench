@@ -16,7 +16,7 @@ The question asked was:
 {question}
 
 The question is nonsensical because:
-{nonsensical_element}
+{judge_hint}
 
 The model responded:
 {response}
