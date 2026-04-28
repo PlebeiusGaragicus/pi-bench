@@ -1,0 +1,10 @@
+prompts:
+  - id: baseline
+    description: default
+    text: |
+      You are a helpful assistant.
+
+  - id: baseline+concise
+    description: baseline + concise
+    text: |
+      You are a helpful assistant. Explain current internet slang clearly and concisely.

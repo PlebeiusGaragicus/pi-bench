@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Parse BullshitBench judge output into a normalized JSON record."""
+"""Parse SkibidiBench judge output into a normalized JSON record."""
 
 from __future__ import annotations
 
@@ -15,4 +15,4 @@ from score_description_parser import main as parse_score_description  # noqa: E4
 
 
 if __name__ == "__main__":
-    raise SystemExit(parse_score_description(min_score=0, max_score=2))
+    raise SystemExit(parse_score_description(min_score=0, max_score=1))

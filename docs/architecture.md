@@ -7,11 +7,13 @@ The repository currently has one benchmark, `bullshit-detector`, but the root ru
 ## Main Components
 
 - `bench`: researcher-facing wrapper. It creates or reuses `.venv`, installs dependencies when needed, and dispatches commands through the virtualenv Python.
-- `benchmarks/<name>/run.py`: benchmark launcher. It prompts for or accepts CLI arguments, writes `runs/<run-id>/config.yml`, and launches `runner.py`.
+- `benchmark_launcher.py`: shared launcher implementation. It prompts for or accepts CLI arguments, writes `runs/<run-id>/config.yml`, and launches `runner.py`.
+- `benchmarks/<name>/run.py`: thin benchmark wrapper that supplies a `BenchmarkSpec` to the shared launcher.
 - `runner.py`: execution engine. It expands the config matrix, invokes `pi`, stores artifacts, records manifests/results, and triggers report generation.
 - `report.py`: report generator. It collates result records into CSV/JSONL/Markdown reports and student-output review files.
 - `yaml_loader.py`: small YAML subset loader used by configs and benchmark data files.
-- `benchmarks/<name>/collate.py`: benchmark-specific parser that turns judge text into structured result records.
+- `score_description_parser.py`: shared parser for line-oriented `Score` / `Description` judge output.
+- `benchmarks/<name>/collate.py`: thin parser wrapper that supplies the allowed score range, or a custom parser when a benchmark needs different extraction.
 
 ## Data Flow
 
@@ -19,9 +21,9 @@ The repository currently has one benchmark, `bullshit-detector`, but the root ru
 flowchart TD
     launcher["benchmark run.py"] --> config["runs/run_id/config.yml"]
     config --> runner["runner.py"]
-    cases["questions.yml"] --> runner
-    prompts["answer-prompts.yml"] --> runner
-    judgeTemplate["judge-template.md"] --> runner
+    cases["evaluation-dataset.yml"] --> runner
+    prompts["generation-system-prompt.yml"] --> runner
+    judgeTemplate["evaluation-prompt-template.md"] --> runner
     runner --> answerCall["answer pi call"]
     answerCall --> answerArtifacts["answer artifacts"]
     answerArtifacts --> judgeCall["judge pi call"]
@@ -51,8 +53,8 @@ Example:
 ```yaml
 benchmark_name: bullshit-detector
 run_id: smoke
-case_file: ../../questions.yml
-answer_prompt_file: ../../answer-prompts.yml
+case_file: ../../evaluation-dataset.yml
+answer_prompt_file: ../../generation-system-prompt.yml
 
 answer_prompts:
   - baseline-helpful
@@ -64,7 +66,7 @@ models:
 judge:
   model: plebchat/google/gemma-4-31b
   reasoning: off
-  template_file: ../../judge-template.md
+  template_file: ../../evaluation-prompt-template.md
 
 runner:
   parser_script: ../../collate.py

@@ -1,0 +1,124 @@
+name: skibidi test dataset
+description: Generation Alpha and circa 2024-2025 internet slang terms.
+license: MIT
+cases:
+  - id: skibidi
+    term: Skibidi
+    question: |
+      In current internet slang, what does "skibidi" mean?
+    expected_answer: |
+      A satisfactory answer should connect the term to "Skibidi Toilet" and explain that it is context-dependent slang rather than a single precise dictionary word. It can mean good, bad, weird, or act as nonsense filler.
+    tags:
+      - gen-alpha
+      - meme
+
+  - id: rizz-rizzler
+    term: Rizz/Rizzler
+    question: |
+      In current internet slang, what do "rizz" and "rizzler" mean?
+    expected_answer: |
+      A satisfactory answer should say that "rizz" means charisma, charm, or flirting ability, and that "rizzler" refers to someone who has or uses rizz especially well.
+    tags:
+      - gen-alpha
+      - dating
+
+  - id: ohio
+    term: Ohio
+    question: |
+      In current internet slang, what does it mean to call something "Ohio"?
+    expected_answer: |
+      A satisfactory answer should not treat Ohio only as the U.S. state. It should explain the meme usage: strange, chaotic, cursed, absurd, or cringey.
+    tags:
+      - gen-alpha
+      - meme
+
+  - id: skibidi-ohio-rizz
+    term: Skibidi Ohio Rizz
+    question: |
+      In current internet slang, what does "skibidi Ohio rizz" usually imply?
+    expected_answer: |
+      A satisfactory answer should recognize this as a layered slang insult rather than a literal phrase. It should connect "Ohio" with weird/cringey and "rizz" with flirting or charm, yielding awkward or embarrassing flirting.
+    tags:
+      - gen-alpha
+      - dating
+      - compound
+
+  - id: sigma
+    term: Sigma
+    question: |
+      In current internet slang, what does "sigma" mean when describing a person?
+    expected_answer: |
+      A satisfactory answer should mention the lone-wolf or independent-successful persona and ideally note that the term is often ironic or tied to alpha-male meme culture.
+    tags:
+      - gen-alpha
+      - persona
+
+  - id: fanum-tax
+    term: Fanum Tax
+    question: |
+      In current internet slang, what is the "Fanum tax"?
+    expected_answer: |
+      A satisfactory answer should identify the food-sharing/food-stealing meaning and connect it to Fanum or streamer culture. It should not describe a real tax.
+    tags:
+      - gen-alpha
+      - streamer
+      - food
+
+  - id: gyatt
+    term: Gyatt
+    question: |
+      In current internet slang, what does "gyatt" mean?
+    expected_answer: |
+      A satisfactory answer should identify that the term is commonly about a large butt or an exclamation of attraction/surprise. It may mention that usage can be crude.
+    tags:
+      - gen-alpha
+      - body
+
+  - id: mewing
+    term: Mewing
+    question: |
+      In current internet slang, what does "mewing" mean?
+    expected_answer: |
+      A satisfactory answer should mention jaw posture, facial exercise, or defining the jawline. It may also note the meme usage where someone gestures that they cannot talk because they are mewing.
+    tags:
+      - gen-alpha
+      - appearance
+
+  - id: mogging
+    term: Mogging
+    question: |
+      In current internet slang, what does "mogging" mean?
+    expected_answer: |
+      A satisfactory answer should explain comparison or outclassing, especially in attractiveness or status. It should not define it as a generic video game or business term.
+    tags:
+      - gen-alpha
+      - appearance
+
+  - id: sus
+    term: Sus
+    question: |
+      In current internet slang, what does "sus" mean?
+    expected_answer: |
+      A satisfactory answer should define "sus" as suspicious, suspect, shady, or untrustworthy. Mentioning Among Us is acceptable but not required.
+    tags:
+      - slang
+      - gaming
+
+  - id: cap-no-cap
+    term: Cap/No Cap
+    question: |
+      In current internet slang, what do "cap" and "no cap" mean?
+    expected_answer: |
+      A satisfactory answer should give both halves: "cap" as lie or exaggeration and "no cap" as truth, honesty, or for real.
+    tags:
+      - slang
+
+  - id: bussin
+    term: Bussin
+    question: |
+      In current internet slang, what does "bussin" mean?
+    expected_answer: |
+      A satisfactory answer should define "bussin" as very good or delicious and should preferably mention its common food usage.
+    tags:
+      - slang
+      - food

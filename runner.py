@@ -523,6 +523,7 @@ def run_item(
         "case_id": case["id"],
         "question": case["question"],
         "judge_hint": case.get("judge_hint", ""),
+        "expected_answer": case.get("expected_answer", ""),
         "tags": case.get("tags", []),
         "model": model["id"],
         "reasoning": reasoning,
@@ -623,7 +624,7 @@ def run_item(
         model=str(judge_config["model"]),
         reasoning=str(judge_config.get("reasoning", "off")),
         artifact_dir=judge_dir,
-        dry_run_text="Score: 2\nDescription: Dry-run judge output confirms parser and manifest flow." if dry_run else None,
+        dry_run_text="Score: 1\nDescription: Dry-run judge output confirms parser and manifest flow." if dry_run else None,
     )
     timing["judge_seconds"] = float(judge_result.get("elapsed_seconds") or 0.0)
     judge_text = str(judge_result.get("text") or "")
@@ -731,6 +732,7 @@ def item_metadata(item: dict[str, Any], config: dict[str, Any]) -> dict[str, Any
         "case_id": case["id"],
         "question": case["question"],
         "judge_hint": case.get("judge_hint", ""),
+        "expected_answer": case.get("expected_answer", ""),
         "tags": case.get("tags", []),
         "model": model["id"],
         "reasoning": item["reasoning"],
@@ -881,7 +883,7 @@ def run_judge_phase_item(
         model=str(judge_config["model"]),
         reasoning=str(judge_config.get("reasoning", "off")),
         artifact_dir=paths["judge_dir"],
-        dry_run_text="Score: 2\nDescription: Dry-run judge output confirms parser and manifest flow." if dry_run else None,
+        dry_run_text="Score: 1\nDescription: Dry-run judge output confirms parser and manifest flow." if dry_run else None,
     )
     timing = artifact_timing(paths)
     timing["judge_seconds"] = float(judge_result.get("elapsed_seconds") or 0.0)

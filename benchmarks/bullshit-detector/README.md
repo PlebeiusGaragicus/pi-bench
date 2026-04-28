@@ -5,8 +5,8 @@ and avoid confidently continuing with invalid assumptions.
 
 Each case asks a professional-sounding but nonsensical question. The answer
 model receives only the question plus one selected system prompt from
-`answer-prompts.yml`. The judge receives the question, the model response, and
-the known `judge_hint` text through the rendered `judge-template.md` user
+`generation-system-prompt.yml`. The judge receives the question, the model response, and
+the known `judge_hint` text through the rendered `evaluation-prompt-template.md` user
 prompt, plus the controlled benchmark judge system prompt from `runner.py`.
 See `../../docs/model-inputs.md` for the full model input contract.
 
@@ -45,10 +45,10 @@ For a non-interactive dry run:
 ## Answer Prompts
 
 Answer prompts are benchmark inputs, not ad hoc launcher state. Named variants
-live in `answer-prompts.yml`, and each run config selects one or more prompt ids:
+live in `generation-system-prompt.yml`, and each run config selects one or more prompt ids:
 
 ```yaml
-answer_prompt_file: ../../answer-prompts.yml
+answer_prompt_file: ../../generation-system-prompt.yml
 answer_prompts:
   - baseline-helpful
   - premise-skeptic
@@ -58,6 +58,10 @@ The runner expands prompts as a first-class matrix dimension:
 `case x model x reasoning x answer_prompt`. Reports, CSV output, JSONL output,
 artifact metadata, and artifact paths all include `answer_prompt_id`. Each answer
 artifact also stores the concrete prompt text in `answer/system-prompt.md`.
+
+`run.py` is a thin wrapper over the shared `benchmark_launcher.py`. `collate.py`
+uses the shared `score_description_parser.py` with this benchmark's 0/1/2 score
+range.
 
 ## Score Rubric
 

@@ -38,7 +38,7 @@ The answer model is the model being evaluated.
 
 System prompt:
 
-- source: selected entry from `benchmarks/<name>/answer-prompts.yml`
+- source: selected entry from `benchmarks/<name>/generation-system-prompt.yml`
 - artifact: `artifacts/<item_id>/answer/system-prompt.md`
 - CLI flag: `--system-prompt <answer prompt text>`
 
@@ -48,7 +48,9 @@ User prompt:
 - artifact: captured in `artifacts/<item_id>/answer/args.json` and `metadata.json`
 - CLI flag: `-p <question>`
 
-For `bullshit-detector`, the answer model receives only the case question as the user prompt. It does not receive `judge_hint`.
+For the current benchmarks, the answer model receives only the case question as
+the user prompt. It does not receive expected-answer fields such as `judge_hint`
+or `expected_answer`.
 
 ## Judge Model Input
 
@@ -64,8 +66,9 @@ System prompt:
 User prompt:
 
 - source: rendered `judge.template_file` from the run config
-- for `bullshit-detector`: `benchmarks/bullshit-detector/judge-template.md`
-- template values: `question`, `response`, `judge_hint`, plus the case fields
+- for `bullshit-detector`: `benchmarks/bullshit-detector/evaluation-prompt-template.md`
+- template values: `response`, plus all case fields such as `question`,
+  `judge_hint`, or `expected_answer`
 - artifact: `artifacts/<item_id>/judge/prompt.txt`
 - CLI flag: `-p <rendered judge prompt>`
 

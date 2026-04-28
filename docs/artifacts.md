@@ -58,7 +58,7 @@ artifacts/<item_id>/
 - item id
 - case id
 - question
-- judge hint
+- benchmark-specific expected fields, such as `judge_hint` or `expected_answer`
 - tags
 - answer model
 - answer reasoning mode
@@ -69,7 +69,7 @@ artifacts/<item_id>/
 ## Answer Artifacts
 
 - `answer/args.json`: exact `pi` argv list used for response generation.
-- `answer/system-prompt.md`: answer system prompt text selected from `answer-prompts.yml`.
+- `answer/system-prompt.md`: answer system prompt text selected from `generation-system-prompt.yml`.
 - `answer/output.json`: compact parsed final assistant text, thoughts, final message metadata, event count, and elapsed seconds.
 - `answer/stderr.txt`: process stderr or dry-run marker.
 - `answer/answer.txt`: human-readable final answer text.
@@ -88,7 +88,9 @@ The answer user prompt is the case question. It appears in `answer/args.json`, `
 - `judge/judge.txt`: human-readable judge output.
 - `judge/sessions/`: run-local `pi` session storage.
 
-For `bullshit-detector`, `judge/prompt.txt` is rendered from `judge-template.md` and includes the case question, answer text, judge hint, rubric, and required output format.
+`judge/prompt.txt` is rendered from `evaluation-prompt-template.md` and includes
+the case question, answer text, benchmark-specific expected fields, rubric, and
+required output format.
 
 ## `output.json`
 
@@ -127,4 +129,4 @@ When validating a run's input control:
 - confirm `answer/system-prompt.md` matches the selected answer prompt
 - confirm `judge/system-prompt.md` contains the benchmark judge role
 - confirm `judge/prompt.txt` contains the rendered benchmark rubric
-- confirm `metadata.json` records the expected answer and judge model ids
+- confirm `metadata.json` records the expected case fields and judge model ids

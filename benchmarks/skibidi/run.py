@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Configure and launch a BullshitBench run."""
+"""Configure and launch a SkibidiBench run."""
 
 from __future__ import annotations
 
@@ -15,9 +15,9 @@ from benchmark_launcher import BenchmarkSpec, main_for_spec  # noqa: E402
 
 
 SPEC = BenchmarkSpec(
-    name="bullshit-detector",
+    name="skibidi",
     benchmark_dir=BENCHMARK_DIR,
-    description=__doc__ or "Configure and launch a BullshitBench run.",
+    description=__doc__ or "Configure and launch a SkibidiBench run.",
 )
 
 

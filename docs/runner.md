@@ -80,7 +80,8 @@ Inputs:
 - model: `judge.model` from config
 - reasoning: `judge.reasoning` from config
 
-For `bullshit-detector`, the rendered judge template receives:
+The rendered judge template receives `response` plus all case fields. For
+`bullshit-detector`, this includes:
 
 - `question`
 - `response`
@@ -108,10 +109,18 @@ Inputs:
 - `judge/judge.txt`
 - target path for `parsed.json`
 
-The parser must write structured JSON. For `bullshit-detector`, `collate.py` parses the two-line judge output:
+The parser must write structured JSON. A benchmark may choose its own scoring
+range. For example, `bullshit-detector` parses:
 
 ```text
 Score: <0, 1, or 2>
+Description: <sentence>
+```
+
+`skibidi` uses the same two-line shape with binary scores:
+
+```text
+Score: <0 or 1>
 Description: <sentence>
 ```
 

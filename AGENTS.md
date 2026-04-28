@@ -11,14 +11,16 @@ requirements.txt                       # Python dependencies for the venv
 runner.py                             # run answer + judge matrix
 report.py                             # collate parsed scores into reports
 yaml_loader.py                        # small YAML subset loader
+benchmark_launcher.py                 # shared benchmark run launcher
+score_description_parser.py           # shared Score/Description parser
 docs/                                 # architecture, runner, artifact, and model-input contracts
 benchmarks/
   bullshit-detector/
-    run.py                            # interactive benchmark launcher
-    questions.yml                     # benchmark case data
-    answer-prompts.yml                # named answer system prompt variants
-    judge-template.md                 # benchmark-specific judge prompt
-    collate.py                        # benchmark-specific judge parser
+    run.py                            # thin launcher wrapper
+    evaluation-dataset.yml            # benchmark case data
+    generation-system-prompt.yml      # named answer system prompt variants
+    evaluation-prompt-template.md     # benchmark-specific judge prompt
+    collate.py                        # thin parser wrapper
     runs/<run-id>/config.yml          # one concrete run configuration
 ```
 
@@ -80,8 +82,8 @@ paths are resolved from the config file directory.
 ```yaml
 benchmark_name: bullshit-detector
 run_id: smoke
-case_file: ../../questions.yml
-answer_prompt_file: ../../answer-prompts.yml
+case_file: ../../evaluation-dataset.yml
+answer_prompt_file: ../../generation-system-prompt.yml
 
 answer_prompts:
   - baseline-helpful
@@ -93,7 +95,7 @@ models:
 judge:
   model: plebchat/google/gemma-4-31b
   reasoning: off
-  template_file: ../../judge-template.md
+  template_file: ../../evaluation-prompt-template.md
 
 runner:
   parser_script: ../../collate.py
@@ -108,7 +110,7 @@ because that keeps the default `pi` coding-agent system prompt in effect. There
 is intentionally no per-call timeout; agentic runs may take several minutes.
 
 Answer prompts are first-class matrix entries selected by id from
-`answer-prompts.yml`. The runner expands
+`generation-system-prompt.yml`. The runner expands
 `case x model x reasoning x answer_prompt`, records `answer_prompt_id` and
 prompt hash in metadata and reports, and writes the concrete prompt text to each
 answer artifact.
@@ -166,6 +168,17 @@ For `bullshit-detector`, each case has:
 The answer model receives only `question`. The judge template receives
 `question`, `response`, and `judge_hint`.
 
+For `skibidi`, each case has:
+
+- `id`
+- `term`
+- `question`
+- `expected_answer`
+- `tags`
+
+The answer model receives only `question`. The judge template receives
+`question`, `term`, `response`, and `expected_answer`.
+
 ## Agent Notes
 
 - Do not hard-code generated run ids in docs or tests unless the user explicitly
@@ -176,4 +189,4 @@ The answer model receives only `question`. The judge template receives
 - Clean up generated validation runs after testing unless the user asked to keep
   them.
 - Keep answer prompt variants in benchmark prompt files such as
-  `answer-prompts.yml`; do not put system prompts in case data files.
+  `generation-system-prompt.yml`; do not put system prompts in case data files.

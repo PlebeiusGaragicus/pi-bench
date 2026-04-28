@@ -10,12 +10,21 @@ REQUIREMENTS_STAMP="$VENV_DIR/.requirements.sha256"
 usage() {
   cat <<'EOF'
 Usage:
-  ./bench run bullshit-detector [args...]
+  ./bench run <benchmark-name> [args...]
+  ./bench list
   ./bench report <config.yml> [args...]
   ./bench runner <config.yml> [args...]
   ./bench python [args...]
   ./bench help
 EOF
+}
+
+list_benchmarks() {
+  local benchmark_dir
+  for benchmark_dir in "$ROOT_DIR"/benchmarks/*; do
+    [[ -f "$benchmark_dir/run.py" ]] || continue
+    basename "$benchmark_dir"
+  done | sort
 }
 
 ensure_venv() {
@@ -53,6 +62,10 @@ case "$command" in
     usage
     ;;
 
+  list)
+    list_benchmarks
+    ;;
+
   run)
     if [[ $# -eq 0 ]]; then
       echo "Missing benchmark name." >&2
@@ -61,16 +74,15 @@ case "$command" in
     fi
     benchmark="$1"
     shift
-    case "$benchmark" in
-      bullshit-detector)
-        ensure_venv
-        exec "$PYTHON_BIN" "$ROOT_DIR/benchmarks/bullshit-detector/run.py" "$@"
-        ;;
-      *)
-        echo "Unknown benchmark: $benchmark" >&2
-        exit 2
-        ;;
-    esac
+    benchmark_runner="$ROOT_DIR/benchmarks/$benchmark/run.py"
+    if [[ ! -f "$benchmark_runner" ]]; then
+      echo "Unknown benchmark: $benchmark" >&2
+      echo "Available benchmarks:" >&2
+      list_benchmarks >&2
+      exit 2
+    fi
+    ensure_venv
+    exec "$PYTHON_BIN" "$benchmark_runner" "$@"
     ;;
 
   report)
