@@ -49,7 +49,11 @@ Those values are recorded in metadata/results, but they do not affect the artifa
 
 ## Phase 1: Answer
 
-The answer phase calls the answer model for each runnable item.
+The answer phase calls the answer model for each runnable item. Items are
+scheduled in model-grouped order: all cases for one answer
+model/reasoning/prompt combination run before the runner moves to the next
+combination. This is a core project principle because self-hosted inference
+often has limited memory and should avoid repeatedly swapping loaded models.
 
 Inputs:
 

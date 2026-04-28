@@ -249,12 +249,12 @@ def expand_matrix(
         raise SystemExit("Config must contain a non-empty 'models' list")
 
     items: list[dict[str, Any]] = []
-    for case in cases:
-        for model in models:
-            if not isinstance(model, dict) or not model.get("id"):
-                raise SystemExit("Each model must be a mapping with an 'id'")
-            reasoning = str(model.get("reasoning", "off"))
-            for answer_prompt in answer_prompts:
+    for model in models:
+        if not isinstance(model, dict) or not model.get("id"):
+            raise SystemExit("Each model must be a mapping with an 'id'")
+        reasoning = str(model.get("reasoning", "off"))
+        for answer_prompt in answer_prompts:
+            for case in cases:
                 item_id = stable_item_id(case["id"], str(model["id"]), reasoning, str(answer_prompt["id"]))
                 items.append(
                     {

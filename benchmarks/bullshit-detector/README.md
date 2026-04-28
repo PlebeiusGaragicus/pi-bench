@@ -33,8 +33,8 @@ Run progress is verbose in the terminal and is also written to
 `runs/<run-id>/run.log`.
 
 The runner executes in phases to avoid unnecessary model swaps on self-hosted
-inference: it collects all answers for the runnable matrix first, then judges
-all completed answers, then parses and reports the judged outputs.
+inference: it collects answers in model-grouped blocks first, then judges all
+completed answers, then parses and reports the judged outputs.
 
 For a non-interactive dry run:
 

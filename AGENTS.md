@@ -110,10 +110,11 @@ because that keeps the default `pi` coding-agent system prompt in effect. There
 is intentionally no per-call timeout; agentic runs may take several minutes.
 
 Answer prompts are first-class matrix entries selected by id from
-`generation-system-prompt.yml`. The runner expands
-`case x model x reasoning x answer_prompt`, records `answer_prompt_id` and
-prompt hash in metadata and reports, and writes the concrete prompt text to each
-answer artifact.
+`generation-system-prompt.yml`. The runner's answer schedule is deliberately
+model-grouped for self-hosted inference: for each answer model/reasoning/prompt
+combination, run all cases before moving to the next model combination. Reports,
+CSV output, JSONL output, artifact metadata, and artifact paths all include
+`answer_prompt_id`.
 
 Answer, judge, and parser errors are recorded as `status: error` result records
 so reports include failed items. Resume skips completed result records,
@@ -123,9 +124,9 @@ Runner progress is intentionally verbose. Console output is mirrored to
 `benchmarks/<name>/runs/<run-id>/run.log`, including answer, judge, parse, error,
 and completion events for each matrix item.
 
-Runner execution is phased to reduce model swaps on self-hosted inference: run
-all answer calls for the runnable matrix, then all judge calls for completed
-answers, then all parser calls.
+Runner execution is phased and model-grouped to reduce model swaps on
+self-hosted inference: run all answer calls in model-contiguous blocks, then all
+judge calls for completed answers, then all parser calls.
 
 Do not persist raw `pi --mode json` streaming output. New answer and judge
 artifacts should keep compact `output.json` files with final text and final

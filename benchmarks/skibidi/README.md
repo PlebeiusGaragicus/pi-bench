@@ -24,6 +24,10 @@ interrupted runs, reads providers from `~/.pi/agent/models.json`, asks which
 providers and models to use, writes `runs/<run-id>/config.yml`, and launches the
 root `runner.py`.
 
+The runner schedules answer calls in model-grouped blocks for self-hosted
+inference: all cases for one answer model/reasoning/prompt combination run
+before moving to the next combination.
+
 For a non-interactive dry run:
 
 ```bash

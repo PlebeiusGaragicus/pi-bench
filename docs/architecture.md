@@ -77,8 +77,13 @@ runner:
 `runner.py` expands:
 
 ```text
-case x answer model x answer reasoning x answer prompt
+answer model x answer reasoning x answer prompt x case
 ```
+
+The traversal order is intentional. For self-hosted inference, answer calls are
+model-grouped: run all cases for one answer model/reasoning/prompt combination
+before moving to the next combination. This avoids repeatedly swapping large
+models in memory.
 
 The judge is not part of the item id. It is run-level configuration recorded in metadata and result records. Changing the judge for an existing run directory can therefore mix judge outputs under the same item ids unless old judge artifacts are cleared or a new run id is used.
 
@@ -86,7 +91,7 @@ The judge is not part of the item id. It is run-level configuration recorded in 
 
 Runner execution is intentionally phased:
 
-1. Answer phase: run all answer-model calls for runnable items.
+1. Answer phase: run all answer-model calls in model-grouped order.
 2. Judge phase: run judge-model calls for items with answer artifacts and no successful complete record.
 3. Parse phase: run parser calls for items with judge artifacts and no successful complete record.
 
