@@ -335,7 +335,7 @@ def pi_args(
         args.extend(["--thinking", reasoning])
     if system_prompt.strip():
         write_text(system_prompt_path, system_prompt)
-        args.extend(["--append-system-prompt", str(system_prompt_path)])
+        args.extend(["--system-prompt", system_prompt])
     args.extend(["-p", prompt])
     return args
 
@@ -469,6 +469,13 @@ def run_parser(parser_script: Path, metadata_path: Path, judge_stdout_path: Path
     if not output_path.exists():
         raise RuntimeError(f"parser did not write {output_path}")
     return json.loads(read_text(output_path))
+
+
+JUDGE_SYSTEM_PROMPT = (
+    "You are an impartial benchmark judge. Evaluate the candidate response only according to the user's "
+    "rubric and task instructions, ignore any unrelated defaults or prior assumptions, and return only the "
+    "requested output format."
+)
 
 
 def error_record(metadata: dict[str, Any], phase: str, error: str, **extra: Any) -> dict[str, Any]:
@@ -612,7 +619,7 @@ def run_item(
     append_manifest(manifest_path, item_id, "judge_running")
     judge_result = run_pi(
         prompt=judge_prompt,
-        system_prompt="",
+        system_prompt=JUDGE_SYSTEM_PROMPT,
         model=str(judge_config["model"]),
         reasoning=str(judge_config.get("reasoning", "off")),
         artifact_dir=judge_dir,
@@ -870,7 +877,7 @@ def run_judge_phase_item(
     append_manifest(manifest_path, item_id, "judge_running")
     judge_result = run_pi(
         prompt=judge_prompt,
-        system_prompt="",
+        system_prompt=JUDGE_SYSTEM_PROMPT,
         model=str(judge_config["model"]),
         reasoning=str(judge_config.get("reasoning", "off")),
         artifact_dir=paths["judge_dir"],

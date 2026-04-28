@@ -6,7 +6,9 @@ and avoid confidently continuing with invalid assumptions.
 Each case asks a professional-sounding but nonsensical question. The answer
 model receives only the question plus one selected system prompt from
 `answer-prompts.yml`. The judge receives the question, the model response, and
-the known `judge_hint` text.
+the known `judge_hint` text through the rendered `judge-template.md` user
+prompt, plus the controlled benchmark judge system prompt from `runner.py`.
+See `../../docs/model-inputs.md` for the full model input contract.
 
 ## Launching A Run
 

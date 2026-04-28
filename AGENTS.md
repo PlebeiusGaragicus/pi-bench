@@ -11,6 +11,7 @@ requirements.txt                       # Python dependencies for the venv
 runner.py                             # run answer + judge matrix
 report.py                             # collate parsed scores into reports
 yaml_loader.py                        # small YAML subset loader
+docs/                                 # architecture, runner, artifact, and model-input contracts
 benchmarks/
   bullshit-detector/
     run.py                            # interactive benchmark launcher
@@ -25,6 +26,10 @@ Generated run artifacts live under `benchmarks/<name>/runs/<run-id>/` and should
 not be hand-edited. `.gitignore` is intended to keep generated artifacts,
 manifests, reports, and plots out of git while allowing run configs to be
 tracked when desired.
+
+Detailed internal contracts live under `docs/`. In particular,
+`docs/model-inputs.md` defines the controlled prompt contract for every model
+call.
 
 ## Core Flow
 
@@ -94,11 +99,13 @@ runner:
   parser_script: ../../collate.py
 ```
 
-`runner.py` invokes `pi` with `--mode json`, `--no-tools`, `--no-skills`, and
-`--no-prompt-templates`. It adds `--model`, `--thinking`, `--session-dir`,
-`--append-system-prompt`, and `-p` from the run config, selected answer prompt,
-and benchmark case data. There is intentionally no per-call timeout; agentic
-runs may take several minutes.
+`runner.py` invokes `pi` with `--mode json`, `--no-tools`, `--no-skills`,
+`--no-prompt-templates`, and `--no-context-files`. It adds `--model`,
+`--thinking`, `--session-dir`, `--system-prompt`, and `-p` from the run config,
+selected answer prompt, judge prompt contract, and benchmark case data. The
+runner must not use `--append-system-prompt` for controlled benchmark calls
+because that keeps the default `pi` coding-agent system prompt in effect. There
+is intentionally no per-call timeout; agentic runs may take several minutes.
 
 Answer prompts are first-class matrix entries selected by id from
 `answer-prompts.yml`. The runner expands
